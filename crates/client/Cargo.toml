@@ -1,0 +1,8 @@
+[package]
+name = "kvm-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+deskserver-common = { path = "../common" }
+enigo = "0.2"

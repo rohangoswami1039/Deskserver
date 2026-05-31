@@ -1,0 +1,8 @@
+[package]
+name = "kvm-server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+deskserver-common = { path = "../common" }
+rdev = "0.5"
