@@ -1,3 +1,15 @@
 [workspace]
 members = ["crates/common", "crates/server", "crates/client"]
 resolver = "2"
+
+[package]
+name = "deskserver-workspace"
+version = "0.1.0"
+edition = "2021"
+
+[dev-dependencies]
+deskserver-common = { path = "crates/common" }
+
+[[test]]
+name = "protocol_test"
+path = "tests/integration/protocol_test.rs"
