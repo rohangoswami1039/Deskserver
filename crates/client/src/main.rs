@@ -39,43 +39,59 @@ fn main() {
     let mut stream = TcpStream::connect(&addr).expect("failed to connect to server");
     stream.set_nodelay(true).expect("failed to set TCP_NODELAY");
     println!("[CLIENT] Connected to server at {}", addr);
-    println!("[CLIENT] Waiting for server to switch to REMOTE mode (Ctrl+Shift+Space)...");
+    println!("[CLIENT] Waiting for test messages and server commands...");
 
     let mut enigo = Enigo::new(&Settings::default()).expect("failed to create Enigo");
+    let mut msg_count: u64 = 0;
 
     loop {
         match read_msg(&mut stream) {
-            Ok(msg) => match msg {
-                InputMsg::MouseMove { x, y } => {
-                    enigo.move_mouse(x as i32, y as i32, Coordinate::Abs).ok();
-                }
-                InputMsg::MouseButton { button, pressed } => {
-                    let btn = map_button(&button);
-                    let dir = if pressed { Direction::Press } else { Direction::Release };
-                    enigo.button(btn, dir).ok();
-                }
-                InputMsg::Wheel { dx: _, dy } => {
-                    enigo.scroll(dy as i32, Axis::Vertical).ok();
-                }
-                InputMsg::KeyDown { key, modifiers: _ } => {
-                    if let Some(kc) = neutral_to_local_keycode(key) {
-                        enigo.raw(kc, Direction::Press).ok();
+            Ok(msg) => {
+                msg_count += 1;
+                match msg {
+                    InputMsg::MouseMove { x, y } => {
+                        if msg_count <= 10 {
+                            println!("[CLIENT] #{}: MouseMove({:.0}, {:.0}) — moving cursor", msg_count, x, y);
+                        }
+                        enigo.move_mouse(x as i32, y as i32, Coordinate::Abs).ok();
+                    }
+                    InputMsg::MouseButton { button, pressed } => {
+                        let action = if pressed { "pressing" } else { "releasing" };
+                        println!("[CLIENT] #{}: MouseButton {:?} — {}", msg_count, button, action);
+                        let btn = map_button(&button);
+                        let dir = if pressed { Direction::Press } else { Direction::Release };
+                        enigo.button(btn, dir).ok();
+                    }
+                    InputMsg::Wheel { dx: _, dy } => {
+                        println!("[CLIENT] #{}: Wheel dy={} — scrolling", msg_count, dy);
+                        enigo.scroll(dy as i32, Axis::Vertical).ok();
+                    }
+                    InputMsg::KeyDown { key, modifiers } => {
+                        if let Some(kc) = neutral_to_local_keycode(key) {
+                            println!("[CLIENT] #{}: KeyDown key={} (local=0x{:02X}) mods=0x{:02X} — pressing", msg_count, key, kc, modifiers);
+                            enigo.raw(kc, Direction::Press).ok();
+                        } else {
+                            println!("[CLIENT] #{}: KeyDown key={} — unmapped, skipping", msg_count, key);
+                        }
+                    }
+                    InputMsg::KeyUp { key, modifiers } => {
+                        if let Some(kc) = neutral_to_local_keycode(key) {
+                            println!("[CLIENT] #{}: KeyUp key={} (local=0x{:02X}) mods=0x{:02X} — releasing", msg_count, key, kc, modifiers);
+                            enigo.raw(kc, Direction::Release).ok();
+                        } else {
+                            println!("[CLIENT] #{}: KeyUp key={} — unmapped, skipping", msg_count, key);
+                        }
+                    }
+                    InputMsg::ScreenEnter => {
+                        println!("[CLIENT] #{}: ScreenEnter — server switched to REMOTE, now controlling this machine", msg_count);
+                    }
+                    InputMsg::ScreenLeave => {
+                        println!("[CLIENT] #{}: ScreenLeave — server switched to LOCAL, control returned", msg_count);
                     }
                 }
-                InputMsg::KeyUp { key, modifiers: _ } => {
-                    if let Some(kc) = neutral_to_local_keycode(key) {
-                        enigo.raw(kc, Direction::Release).ok();
-                    }
-                }
-                InputMsg::ScreenEnter => {
-                    println!("[CLIENT] Server switched to REMOTE — now controlling this machine");
-                }
-                InputMsg::ScreenLeave => {
-                    println!("[CLIENT] Server switched to LOCAL — control returned to server");
-                }
-            },
+            }
             Err(e) => {
-                eprintln!("[CLIENT] Read error (server disconnected?): {}", e);
+                eprintln!("[CLIENT] Read error after {} messages: {}", msg_count, e);
                 break;
             }
         }
