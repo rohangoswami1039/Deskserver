@@ -48,6 +48,18 @@ fn main() {
                     InputMsg::Wheel { dx, dy } => {
                         println!("[CLIENT] Received #{}: Wheel dx={}, dy={}", count, dx, dy);
                     }
+                    InputMsg::KeyDown { key, modifiers } => {
+                        println!("[CLIENT] Received #{}: KeyDown key={}, modifiers={}", count, key, modifiers);
+                    }
+                    InputMsg::KeyUp { key, modifiers } => {
+                        println!("[CLIENT] Received #{}: KeyUp key={}, modifiers={}", count, key, modifiers);
+                    }
+                    InputMsg::ScreenEnter => {
+                        println!("[CLIENT] Received #{}: ScreenEnter", count);
+                    }
+                    InputMsg::ScreenLeave => {
+                        println!("[CLIENT] Received #{}: ScreenLeave", count);
+                    }
                 }
             }
             Err(e) => {
