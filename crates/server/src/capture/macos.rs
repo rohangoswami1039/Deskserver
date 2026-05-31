@@ -58,12 +58,14 @@ const KCG_EVENT_OTHER_MOUSE_DRAGGED: u32 = 27;
 const KCG_EVENT_TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFFFFFE;
 
 // Event fields
+const KCG_MOUSE_EVENT_DELTA_X: u32 = 4;
+const KCG_MOUSE_EVENT_DELTA_Y: u32 = 5;
 const KCG_KEYBOARD_EVENT_KEYCODE: u32 = 9;
 const KCG_SCROLL_WHEEL_EVENT_DELTA_AXIS_1: u32 = 11;
 const KCG_SCROLL_WHEEL_EVENT_DELTA_AXIS_2: u32 = 12;
 
 // Tap location/placement/options
-const KCG_HID_EVENT_TAP: u32 = 0;
+const KCG_SESSION_EVENT_TAP: u32 = 1; // Session level — better suppression
 const KCG_HEAD_INSERT_EVENT_TAP: u32 = 0;
 const KCG_EVENT_TAP_OPTION_DEFAULT: u32 = 0;
 
@@ -149,7 +151,9 @@ unsafe extern "C" fn tap_callback(
         KCG_EVENT_MOUSE_MOVED | KCG_EVENT_LEFT_MOUSE_DRAGGED
         | KCG_EVENT_RIGHT_MOUSE_DRAGGED | KCG_EVENT_OTHER_MOUSE_DRAGGED => {
             let loc = CGEventGetLocation(event);
-            Some(CaptureEvent::MouseMove { x: loc.x, y: loc.y })
+            let dx = CGEventGetIntegerValueField(event, KCG_MOUSE_EVENT_DELTA_X) as f64;
+            let dy = CGEventGetIntegerValueField(event, KCG_MOUSE_EVENT_DELTA_Y) as f64;
+            Some(CaptureEvent::MouseMove { x: loc.x, y: loc.y, delta_x: dx, delta_y: dy })
         }
         KCG_EVENT_LEFT_MOUSE_DOWN => Some(CaptureEvent::MouseButton { button: MouseButton::Left, pressed: true }),
         KCG_EVENT_LEFT_MOUSE_UP => Some(CaptureEvent::MouseButton { button: MouseButton::Left, pressed: false }),
@@ -228,7 +232,7 @@ pub fn run<F: FnMut(CaptureEvent) -> bool + 'static>(callback: F) {
 
     unsafe {
         let tap = CGEventTapCreate(
-            KCG_HID_EVENT_TAP,
+            KCG_SESSION_EVENT_TAP,
             KCG_HEAD_INSERT_EVENT_TAP,
             KCG_EVENT_TAP_OPTION_DEFAULT,
             mask,

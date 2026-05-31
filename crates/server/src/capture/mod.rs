@@ -8,7 +8,7 @@ pub mod windows;
 /// Internal capture event — platform-neutral representation of a raw OS event.
 #[derive(Debug, Clone)]
 pub enum CaptureEvent {
-    MouseMove { x: f64, y: f64 },
+    MouseMove { x: f64, y: f64, delta_x: f64, delta_y: f64 },
     MouseButton { button: MouseButton, pressed: bool },
     Wheel { dx: i64, dy: i64 },
     KeyDown { keycode: u32, modifiers: u8 },

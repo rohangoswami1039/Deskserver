@@ -37,6 +37,8 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             WM_MOUSEMOVE => Some(CaptureEvent::MouseMove {
                 x: info.pt.x as f64,
                 y: info.pt.y as f64,
+                delta_x: 0.0, // Windows deltas handled differently
+                delta_y: 0.0,
             }),
             WM_LBUTTONDOWN => Some(CaptureEvent::MouseButton {
                 button: MouseButton::Left,

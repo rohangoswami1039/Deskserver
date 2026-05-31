@@ -126,18 +126,6 @@ fn main() {
 
     let stream = Mutex::new(stream);
 
-    // Get screen center for delta calculation
-    let (center_x, center_y) = {
-        #[cfg(target_os = "macos")]
-        {
-            kvm_server_lib::capture::macos::get_screen_center()
-        }
-        #[cfg(target_os = "windows")]
-        {
-            (960.0, 540.0) // TODO: get actual screen center on Windows
-        }
-    };
-
     run_capture(move |event| {
         if is_hotkey(&event) {
             toggle_mode(&stream);
@@ -148,16 +136,11 @@ fn main() {
             return false;
         }
 
-        // REMOTE mode — mouse is disconnected, so x/y from the event
-        // are the last known position. We use event deltas instead.
+        // REMOTE mode — send raw deltas from the OS event
         let msg = match &event {
-            CaptureEvent::MouseMove { x, y } => {
-                // When mouse is disconnected, the position stays fixed but
-                // we still get events. Send the position as delta from center.
-                let dx = *x - center_x;
-                let dy = *y - center_y;
-                if dx.abs() > 0.1 || dy.abs() > 0.1 {
-                    Some(InputMsg::MouseMove { x: dx, y: dy })
+            CaptureEvent::MouseMove { delta_x, delta_y, .. } => {
+                if delta_x.abs() > 0.1 || delta_y.abs() > 0.1 {
+                    Some(InputMsg::MouseMove { x: *delta_x, y: *delta_y })
                 } else {
                     None
                 }
