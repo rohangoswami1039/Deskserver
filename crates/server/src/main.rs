@@ -1,5 +1,6 @@
 use kvm_server_lib::capture::{run_capture, CaptureEvent};
-use deskserver_common::{write_msg, InputMsg, MOD_SHIFT};
+use deskserver_common::{write_msg, InputMsg};
+use std::time::Instant;
 use deskserver_common::MouseButton;
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -18,17 +19,37 @@ const LOCAL: u8 = 0;
 const REMOTE: u8 = 1;
 static MODE: AtomicU8 = AtomicU8::new(LOCAL);
 
+// Double-tap Right Shift to toggle REMOTE/LOCAL
+use std::cell::RefCell;
+thread_local! {
+    static LAST_RSHIFT_TAP: RefCell<Option<Instant>> = RefCell::new(None);
+}
+
 fn is_hotkey(event: &CaptureEvent) -> bool {
+    // Detect Right Shift key-up (release) — double-tap within 400ms
     match event {
-        CaptureEvent::KeyDown { keycode, modifiers } => {
-            // Pipe key "|" (Shift+Backslash)
-            let is_backslash = {
+        CaptureEvent::KeyUp { keycode, .. } => {
+            let is_right_shift = {
                 #[cfg(target_os = "macos")]
-                { *keycode == 0x2A } // macOS backslash keycode
+                { *keycode == 0x3C } // Right Shift on macOS
                 #[cfg(target_os = "windows")]
-                { *keycode == 0xDC } // VK_OEM_5 (backslash)
+                { *keycode == 0xA1 } // VK_RSHIFT on Windows
             };
-            is_backslash && (*modifiers & MOD_SHIFT != 0)
+            if !is_right_shift {
+                return false;
+            }
+            LAST_RSHIFT_TAP.with(|last| {
+                let now = Instant::now();
+                let mut last = last.borrow_mut();
+                if let Some(prev) = *last {
+                    if now.duration_since(prev).as_millis() < 400 {
+                        *last = None; // Reset so triple-tap doesn't re-trigger
+                        return true;
+                    }
+                }
+                *last = Some(now);
+                false
+            })
         }
         _ => false,
     }
@@ -99,19 +120,11 @@ fn main() {
         println!("[SERVER] Connection verified!");
     }
 
-    println!("[SERVER] Press | (Shift+Backslash) to toggle REMOTE/LOCAL mode");
+    println!("[SERVER] Double-tap Right Shift to toggle REMOTE/LOCAL mode");
 
     let stream = Mutex::new(stream);
 
     run_capture(move |event| {
-        // Debug: log key events to find working hotkey
-        match &event {
-            CaptureEvent::KeyDown { keycode, modifiers } => {
-                println!("[DEBUG] KeyDown keycode=0x{:02X} ({}) mods=0x{:02X}", keycode, keycode, modifiers);
-            }
-            _ => {}
-        }
-
         if is_hotkey(&event) {
             toggle_mode(&stream);
             return true; // Always suppress the hotkey itself
