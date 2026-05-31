@@ -26,16 +26,16 @@ thread_local! {
 }
 
 fn is_hotkey(event: &CaptureEvent) -> bool {
-    // Detect Right Shift key-up (release) — double-tap within 400ms
+    // Detect Left Shift key-up (release) — double-tap within 400ms
     match event {
         CaptureEvent::KeyUp { keycode, .. } => {
-            let is_right_shift = {
+            let is_left_shift = {
                 #[cfg(target_os = "macos")]
-                { *keycode == 0x3C } // Right Shift on macOS
+                { *keycode == 0x38 } // Left Shift on macOS
                 #[cfg(target_os = "windows")]
-                { *keycode == 0xA1 } // VK_RSHIFT on Windows
+                { *keycode == 0xA0 } // VK_LSHIFT on Windows
             };
-            if !is_right_shift {
+            if !is_left_shift {
                 return false;
             }
             LAST_RSHIFT_TAP.with(|last| {
@@ -63,16 +63,17 @@ fn toggle_mode(stream: &Mutex<std::net::TcpStream>) {
     if new_mode == REMOTE {
         println!("[SERVER] Mode: REMOTE — forwarding input to client");
         #[cfg(target_os = "macos")]
-        unsafe {
-            core_graphics::display::CGDisplayHideCursor(core_graphics::display::CGMainDisplayID());
+        {
+            kvm_server_lib::capture::macos::hide_cursor();
+            kvm_server_lib::capture::macos::warp_cursor_to_center();
         }
         let mut s = stream.lock().unwrap();
         let _ = write_msg(&mut *s, &InputMsg::ScreenEnter);
     } else {
         println!("[SERVER] Mode: LOCAL — input goes to this machine");
         #[cfg(target_os = "macos")]
-        unsafe {
-            core_graphics::display::CGDisplayShowCursor(core_graphics::display::CGMainDisplayID());
+        {
+            kvm_server_lib::capture::macos::show_cursor();
         }
         let mut s = stream.lock().unwrap();
         let _ = write_msg(&mut *s, &InputMsg::ScreenLeave);
@@ -120,7 +121,7 @@ fn main() {
         println!("[SERVER] Connection verified!");
     }
 
-    println!("[SERVER] Double-tap Right Shift to toggle REMOTE/LOCAL mode");
+    println!("[SERVER] Double-tap Left Shift to toggle REMOTE/LOCAL mode");
 
     let stream = Mutex::new(stream);
 
@@ -134,7 +135,12 @@ fn main() {
             return false;
         }
 
-        // REMOTE mode — convert and forward
+        // REMOTE mode — warp cursor back to center to freeze it
+        #[cfg(target_os = "macos")]
+        if matches!(&event, CaptureEvent::MouseMove { .. }) {
+            kvm_server_lib::capture::macos::warp_cursor_to_center();
+        }
+
         let msg = match &event {
             CaptureEvent::MouseMove { x, y } => {
                 Some(InputMsg::MouseMove { x: *x, y: *y })
