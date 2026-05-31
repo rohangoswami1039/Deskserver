@@ -136,7 +136,12 @@ fn main() {
             return false;
         }
 
-        // REMOTE mode — send raw deltas from the OS event
+        // REMOTE mode — pin Mac cursor and send raw deltas
+        #[cfg(target_os = "macos")]
+        if matches!(&event, CaptureEvent::MouseMove { .. }) {
+            kvm_server_lib::capture::macos::pin_cursor();
+        }
+
         let msg = match &event {
             CaptureEvent::MouseMove { delta_x, delta_y, .. } => {
                 if delta_x.abs() > 0.1 || delta_y.abs() > 0.1 {

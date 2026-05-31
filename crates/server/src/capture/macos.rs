@@ -292,10 +292,23 @@ pub fn get_screen_center() -> (f64, f64) {
 
 /// Disconnect mouse from cursor — cursor freezes, but mouse delta events still fire.
 pub fn disconnect_mouse() {
-    unsafe { CGAssociateMouseAndMouseCursorPosition(0); }
+    unsafe {
+        let result = CGAssociateMouseAndMouseCursorPosition(0);
+        println!("[CAPTURE] CGAssociateMouseAndMouseCursorPosition(false) = {}", result);
+    }
 }
 
 /// Reconnect mouse to cursor — normal cursor behavior resumes.
 pub fn reconnect_mouse() {
-    unsafe { CGAssociateMouseAndMouseCursorPosition(1); }
+    unsafe {
+        let result = CGAssociateMouseAndMouseCursorPosition(1);
+        println!("[CAPTURE] CGAssociateMouseAndMouseCursorPosition(true) = {}", result);
+    }
+}
+
+/// Pin cursor to a fixed spot (top-left corner, out of the way).
+pub fn pin_cursor() {
+    unsafe {
+        CGWarpMouseCursorPosition(CGPoint { x: 0.0, y: 0.0 });
+    }
 }
