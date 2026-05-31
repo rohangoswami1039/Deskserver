@@ -1,7 +1,7 @@
 use super::CaptureEvent;
 use core_foundation::mach_port::CFMachPort;
 use core_foundation::runloop::{CFRunLoop, CFRunLoopSource};
-use core_foundation_sys::runloop::kCFRunLoopCommonModes;
+use core_foundation::runloop::kCFRunLoopCommonModes;
 use core_graphics::event::{
     CGEvent, CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
     CGEventTapProxy, CGEventType, EventField,
@@ -11,7 +11,7 @@ use deskserver_common::MouseButton;
 use std::cell::RefCell;
 
 extern "C" {
-    fn CGEventTapEnable(tap: core_foundation_sys::mach_port::CFMachPortRef, enable: bool);
+    fn CGEventTapEnable(tap: core_foundation::mach_port::CFMachPortRef, enable: bool);
 }
 
 /// Store the mach port so we can re-enable the tap on timeout.
@@ -73,7 +73,7 @@ pub fn run<F: FnMut(CaptureEvent) -> bool + 'static>(callback: F) {
         events_of_interest,
         move |_proxy: CGEventTapProxy, etype: CGEventType, event: &CGEvent| -> Option<CGEvent> {
             // Handle tap disabled by timeout — re-enable the tap.
-            if etype == CGEventType::TapDisabledByTimeout {
+            if matches!(etype, CGEventType::TapDisabledByTimeout) {
                 TAP_MACH_PORT.with(|port| {
                     if let Some(ref tap) = *port.borrow() {
                         unsafe {

@@ -1,49 +1,122 @@
-use deskserver_common::{write_msg, InputMsg, MouseButton};
-use std::io::Write;
+use kvm_server_lib::capture::{run_capture, CaptureEvent};
+use deskserver_common::{write_msg, InputMsg, MOD_CTRL, MOD_SHIFT};
 use std::net::TcpListener;
-use std::thread;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Mutex;
+
+#[cfg(target_os = "macos")]
+use deskserver_common::keymap::macos_keycode_to_neutral;
+#[cfg(target_os = "windows")]
+use deskserver_common::keymap::windows_vk_to_neutral;
 
 const PORT: u16 = 24800;
 
-fn main() {
-    println!("[SERVER] Starting test server...");
-    println!("[SERVER] Binding to 0.0.0.0:{}", PORT);
+const LOCAL: u8 = 0;
+const REMOTE: u8 = 1;
+static MODE: AtomicU8 = AtomicU8::new(LOCAL);
 
+fn is_hotkey(event: &CaptureEvent) -> bool {
+    match event {
+        CaptureEvent::KeyDown { keycode, modifiers } => {
+            let is_space = {
+                #[cfg(target_os = "macos")]
+                { *keycode == 0x31 }
+                #[cfg(target_os = "windows")]
+                { *keycode == 0x20 }
+            };
+            is_space && (*modifiers & MOD_CTRL != 0) && (*modifiers & MOD_SHIFT != 0)
+        }
+        _ => false,
+    }
+}
+
+fn toggle_mode(stream: &Mutex<std::net::TcpStream>) {
+    let current = MODE.load(Ordering::SeqCst);
+    let new_mode = if current == LOCAL { REMOTE } else { LOCAL };
+    MODE.store(new_mode, Ordering::SeqCst);
+
+    if new_mode == REMOTE {
+        println!("[SERVER] Mode: REMOTE — forwarding input to client");
+        #[cfg(target_os = "macos")]
+        unsafe {
+            core_graphics::display::CGDisplayHideCursor(core_graphics::display::CGMainDisplayID());
+        }
+        let mut s = stream.lock().unwrap();
+        let _ = write_msg(&mut *s, &InputMsg::ScreenEnter);
+    } else {
+        println!("[SERVER] Mode: LOCAL — input goes to this machine");
+        #[cfg(target_os = "macos")]
+        unsafe {
+            core_graphics::display::CGDisplayShowCursor(core_graphics::display::CGMainDisplayID());
+        }
+        let mut s = stream.lock().unwrap();
+        let _ = write_msg(&mut *s, &InputMsg::ScreenLeave);
+    }
+}
+
+fn to_neutral_key(keycode: u32) -> Option<u32> {
+    #[cfg(target_os = "macos")]
+    { macos_keycode_to_neutral(keycode) }
+    #[cfg(target_os = "windows")]
+    { windows_vk_to_neutral(keycode) }
+}
+
+fn main() {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", PORT))
         .expect("[SERVER] ERROR: failed to bind");
-    println!("[SERVER] Bound successfully. Waiting for client...");
 
-    let (mut stream, addr) = listener.accept().expect("[SERVER] ERROR: failed to accept");
+    println!("[SERVER] Listening on 0.0.0.0:{}", PORT);
+    println!("[SERVER] Waiting for client connection...");
+
+    let (stream, addr) = listener.accept().expect("[SERVER] ERROR: failed to accept");
     stream.set_nodelay(true).expect("[SERVER] ERROR: failed to set TCP_NODELAY");
-    println!("[SERVER] Client connected from: {}", addr);
+    println!("[SERVER] Client connected: {}", addr);
+    println!("[SERVER] Press Ctrl+Shift+Space to toggle REMOTE/LOCAL mode");
 
-    // Send a sequence of test messages with logging
-    let test_messages = vec![
-        ("MouseMove(100, 200)", InputMsg::MouseMove { x: 100.0, y: 200.0 }),
-        ("MouseMove(300, 400)", InputMsg::MouseMove { x: 300.0, y: 400.0 }),
-        ("MouseButton(Left, press)", InputMsg::MouseButton { button: MouseButton::Left, pressed: true }),
-        ("MouseButton(Left, release)", InputMsg::MouseButton { button: MouseButton::Left, pressed: false }),
-        ("Wheel(0, 3)", InputMsg::Wheel { dx: 0, dy: 3 }),
-        ("MouseMove(500, 500)", InputMsg::MouseMove { x: 500.0, y: 500.0 }),
-    ];
+    let stream = Mutex::new(stream);
 
-    println!("[SERVER] Sending {} test messages (1 per second)...", test_messages.len());
+    run_capture(move |event| {
+        if is_hotkey(&event) {
+            toggle_mode(&stream);
+            return true; // Always suppress the hotkey itself
+        }
 
-    for (i, (label, msg)) in test_messages.iter().enumerate() {
-        println!("[SERVER] Sending message {}/{}: {}", i + 1, test_messages.len(), label);
-        match write_msg(&mut stream, msg) {
-            Ok(()) => println!("[SERVER] Message {}/{} sent OK", i + 1, test_messages.len()),
-            Err(e) => {
-                eprintln!("[SERVER] ERROR sending message {}: {}", i + 1, e);
-                return;
+        if MODE.load(Ordering::SeqCst) == LOCAL {
+            return false;
+        }
+
+        // REMOTE mode — convert and forward
+        let msg = match &event {
+            CaptureEvent::MouseMove { x, y } => {
+                Some(InputMsg::MouseMove { x: *x, y: *y })
+            }
+            CaptureEvent::MouseButton { button, pressed } => {
+                Some(InputMsg::MouseButton { button: *button, pressed: *pressed })
+            }
+            CaptureEvent::Wheel { dx, dy } => {
+                Some(InputMsg::Wheel { dx: *dx, dy: *dy })
+            }
+            CaptureEvent::KeyDown { keycode, modifiers } => {
+                to_neutral_key(*keycode).map(|key| InputMsg::KeyDown {
+                    key,
+                    modifiers: *modifiers,
+                })
+            }
+            CaptureEvent::KeyUp { keycode, modifiers } => {
+                to_neutral_key(*keycode).map(|key| InputMsg::KeyUp {
+                    key,
+                    modifiers: *modifiers,
+                })
+            }
+        };
+
+        if let Some(msg) = msg {
+            let mut s = stream.lock().unwrap();
+            if let Err(e) = write_msg(&mut *s, &msg) {
+                eprintln!("[SERVER] Write error: {}", e);
             }
         }
-        thread::sleep(Duration::from_secs(1));
-    }
 
-    println!("[SERVER] All test messages sent successfully!");
-    println!("[SERVER] Keeping connection open for 3 more seconds...");
-    thread::sleep(Duration::from_secs(3));
-    println!("[SERVER] Done. Exiting.");
+        true // Suppress in REMOTE mode
+    });
 }

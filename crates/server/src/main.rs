@@ -1,21 +1,64 @@
-use deskserver_common::{write_msg, InputMsg, MouseButton};
-use rdev::{listen, EventType, Button};
+use kvm_server_lib::capture::{run_capture, CaptureEvent};
+use deskserver_common::{write_msg, InputMsg, MOD_CTRL, MOD_SHIFT};
 use std::net::TcpListener;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Mutex;
-use std::thread;
-use std::time::Duration;
+
+#[cfg(target_os = "macos")]
+use deskserver_common::keymap::macos_keycode_to_neutral;
+#[cfg(target_os = "windows")]
+use deskserver_common::keymap::windows_vk_to_neutral;
 
 const PORT: u16 = 24800;
-static EVENT_COUNT: AtomicU64 = AtomicU64::new(0);
 
-fn map_button(b: Button) -> Option<MouseButton> {
-    match b {
-        Button::Left => Some(MouseButton::Left),
-        Button::Right => Some(MouseButton::Right),
-        Button::Middle => Some(MouseButton::Middle),
-        _ => None,
+const LOCAL: u8 = 0;
+const REMOTE: u8 = 1;
+static MODE: AtomicU8 = AtomicU8::new(LOCAL);
+
+fn is_hotkey(event: &CaptureEvent) -> bool {
+    match event {
+        CaptureEvent::KeyDown { keycode, modifiers } => {
+            let is_space = {
+                #[cfg(target_os = "macos")]
+                { *keycode == 0x31 }
+                #[cfg(target_os = "windows")]
+                { *keycode == 0x20 }
+            };
+            is_space && (*modifiers & MOD_CTRL != 0) && (*modifiers & MOD_SHIFT != 0)
+        }
+        _ => false,
     }
+}
+
+fn toggle_mode(stream: &Mutex<std::net::TcpStream>) {
+    let current = MODE.load(Ordering::SeqCst);
+    let new_mode = if current == LOCAL { REMOTE } else { LOCAL };
+    MODE.store(new_mode, Ordering::SeqCst);
+
+    if new_mode == REMOTE {
+        println!("[SERVER] Mode: REMOTE — forwarding input to client");
+        #[cfg(target_os = "macos")]
+        unsafe {
+            core_graphics::display::CGDisplayHideCursor(core_graphics::display::CGMainDisplayID());
+        }
+        let mut s = stream.lock().unwrap();
+        let _ = write_msg(&mut *s, &InputMsg::ScreenEnter);
+    } else {
+        println!("[SERVER] Mode: LOCAL — input goes to this machine");
+        #[cfg(target_os = "macos")]
+        unsafe {
+            core_graphics::display::CGDisplayShowCursor(core_graphics::display::CGMainDisplayID());
+        }
+        let mut s = stream.lock().unwrap();
+        let _ = write_msg(&mut *s, &InputMsg::ScreenLeave);
+    }
+}
+
+fn to_neutral_key(keycode: u32) -> Option<u32> {
+    #[cfg(target_os = "macos")]
+    { macos_keycode_to_neutral(keycode) }
+    #[cfg(target_os = "windows")]
+    { windows_vk_to_neutral(keycode) }
 }
 
 fn main() {
@@ -28,71 +71,52 @@ fn main() {
     let (stream, addr) = listener.accept().expect("[SERVER] ERROR: failed to accept");
     stream.set_nodelay(true).expect("[SERVER] ERROR: failed to set TCP_NODELAY");
     println!("[SERVER] Client connected: {}", addr);
+    println!("[SERVER] Press Ctrl+Shift+Space to toggle REMOTE/LOCAL mode");
 
-    // Phase 1: Send 5 test messages (1/sec) to prove the pipe works
-    {
-        let mut s = &stream;
-        for i in 1..=5 {
-            let msg = InputMsg::MouseMove { x: (i * 100) as f64, y: (i * 100) as f64 };
-            println!("[SERVER] Test message {}/5: MouseMove({}, {})", i, i*100, i*100);
-            match write_msg(&mut s, &msg) {
-                Ok(()) => println!("[SERVER] Test message {}/5 sent OK", i),
-                Err(e) => {
-                    eprintln!("[SERVER] ERROR: Test message {} failed: {}", i, e);
-                    eprintln!("[SERVER] Client disconnected during test phase. Exiting.");
-                    std::process::exit(1);
-                }
-            }
-            thread::sleep(Duration::from_secs(1));
-        }
-        println!("[SERVER] All 5 test messages sent! Pipe is verified.");
-    }
-
-    // Phase 2: Switch to rdev capture
-    println!("[SERVER] Now switching to live mouse capture...");
     let stream = Mutex::new(stream);
 
-    listen(move |event| {
-        let count = EVENT_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-        let msg = match event.event_type {
-            EventType::MouseMove { x, y } => {
-                if count <= 5 || count % 200 == 0 {
-                    println!("[SERVER] Live #{}: MouseMove({:.0}, {:.0})", count, x, y);
-                }
-                Some(InputMsg::MouseMove { x, y })
+    run_capture(move |event| {
+        if is_hotkey(&event) {
+            toggle_mode(&stream);
+            return true; // Always suppress the hotkey itself
+        }
+
+        if MODE.load(Ordering::SeqCst) == LOCAL {
+            return false;
+        }
+
+        // REMOTE mode — convert and forward
+        let msg = match &event {
+            CaptureEvent::MouseMove { x, y } => {
+                Some(InputMsg::MouseMove { x: *x, y: *y })
             }
-            EventType::ButtonPress(b) => {
-                println!("[SERVER] Live #{}: ButtonPress({:?})", count, b);
-                map_button(b).map(|button| InputMsg::MouseButton {
-                    button,
-                    pressed: true,
+            CaptureEvent::MouseButton { button, pressed } => {
+                Some(InputMsg::MouseButton { button: *button, pressed: *pressed })
+            }
+            CaptureEvent::Wheel { dx, dy } => {
+                Some(InputMsg::Wheel { dx: *dx, dy: *dy })
+            }
+            CaptureEvent::KeyDown { keycode, modifiers } => {
+                to_neutral_key(*keycode).map(|key| InputMsg::KeyDown {
+                    key,
+                    modifiers: *modifiers,
                 })
             }
-            EventType::ButtonRelease(b) => {
-                println!("[SERVER] Live #{}: ButtonRelease({:?})", count, b);
-                map_button(b).map(|button| InputMsg::MouseButton {
-                    button,
-                    pressed: false,
+            CaptureEvent::KeyUp { keycode, modifiers } => {
+                to_neutral_key(*keycode).map(|key| InputMsg::KeyUp {
+                    key,
+                    modifiers: *modifiers,
                 })
             }
-            EventType::Wheel { delta_x, delta_y } => {
-                println!("[SERVER] Live #{}: Wheel({}, {})", count, delta_x, delta_y);
-                Some(InputMsg::Wheel {
-                    dx: delta_x,
-                    dy: delta_y,
-                })
-            }
-            _ => None,
         };
 
         if let Some(msg) = msg {
             let mut s = stream.lock().unwrap();
             if let Err(e) = write_msg(&mut *s, &msg) {
-                eprintln!("[SERVER] Write error at live #{}: {}", count, e);
-            } else if count <= 3 {
-                println!("[SERVER] Live #{} sent OK", count);
+                eprintln!("[SERVER] Write error: {}", e);
             }
         }
-    })
-    .expect("[SERVER] ERROR: failed to start event listener");
+
+        true // Suppress in REMOTE mode
+    });
 }

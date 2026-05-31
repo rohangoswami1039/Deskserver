@@ -4,9 +4,12 @@ version = "0.1.0"
 edition = "2021"
 default-run = "test_server"
 
+[lib]
+name = "kvm_server_lib"
+path = "src/lib.rs"
+
 [dependencies]
 deskserver-common = { path = "../common" }
-rdev = "0.5"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.23"
