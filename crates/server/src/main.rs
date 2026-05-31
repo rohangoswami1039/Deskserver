@@ -26,18 +26,34 @@ fn main() {
 
     let (mut stream, addr) = listener.accept().expect("failed to accept client");
     stream.set_nodelay(true).expect("failed to set TCP_NODELAY");
-    println!("client connected: {}", addr);
+    println!("[SERVER] Client connected: {}", addr);
+
+    // Handshake: send a test message immediately to verify the pipe
+    println!("[SERVER] Sending handshake...");
+    match write_msg(&mut stream, &InputMsg::MouseMove { x: 0.0, y: 0.0 }) {
+        Ok(()) => println!("[SERVER] Handshake sent OK — pipe is alive"),
+        Err(e) => {
+            eprintln!("[SERVER] ERROR: Handshake failed — client already disconnected: {}", e);
+            eprintln!("[SERVER] This usually means a stale client connected. Try again.");
+            std::process::exit(1);
+        }
+    }
 
     let (tx, rx) = mpsc::channel::<InputMsg>();
 
     // Writer thread: drain channel → TCP
     thread::spawn(move || {
+        let mut write_count: u64 = 0;
         loop {
             match rx.recv() {
                 Ok(msg) => {
+                    write_count += 1;
                     if let Err(e) = write_msg(&mut stream, &msg) {
-                        eprintln!("write error: {}", e);
+                        eprintln!("[SERVER] Write error after {} messages: {}", write_count, e);
                         break;
+                    }
+                    if write_count <= 3 {
+                        println!("[SERVER] Sent message #{} to client", write_count);
                     }
                 }
                 Err(_) => {
@@ -45,7 +61,7 @@ fn main() {
                 }
             }
         }
-        println!("writer thread exiting");
+        println!("[SERVER] Writer thread exiting");
     });
 
     // Main thread: rdev::listen (must be main thread on macOS)
