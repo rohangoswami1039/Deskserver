@@ -1,5 +1,5 @@
 use kvm_server_lib::capture::{run_capture, CaptureEvent};
-use deskserver_common::{write_msg, InputMsg, MOD_SHIFT, MOD_META};
+use deskserver_common::{write_msg, InputMsg, MOD_SHIFT};
 use deskserver_common::MouseButton;
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -21,22 +21,14 @@ static MODE: AtomicU8 = AtomicU8::new(LOCAL);
 fn is_hotkey(event: &CaptureEvent) -> bool {
     match event {
         CaptureEvent::KeyDown { keycode, modifiers } => {
-            let is_1 = {
+            // Pipe key "|" (Shift+Backslash)
+            let is_backslash = {
                 #[cfg(target_os = "macos")]
-                { *keycode == 0x12 } // macOS '1' keycode
+                { *keycode == 0x2A } // macOS backslash keycode
                 #[cfg(target_os = "windows")]
-                { *keycode == 0x31 } // VK_1
+                { *keycode == 0xDC } // VK_OEM_5 (backslash)
             };
-            // Physical Ctrl+Shift+1
-            // On macOS: physical Ctrl → MOD_META (due to Cmd↔Ctrl swap), Shift → MOD_SHIFT
-            // On Windows: physical Ctrl → MOD_CTRL, Shift → MOD_SHIFT
-            let ctrl_held = {
-                #[cfg(target_os = "macos")]
-                { *modifiers & MOD_META != 0 } // physical Ctrl is META after swap
-                #[cfg(target_os = "windows")]
-                { *modifiers & deskserver_common::MOD_CTRL != 0 }
-            };
-            is_1 && ctrl_held && (*modifiers & MOD_SHIFT != 0)
+            is_backslash && (*modifiers & MOD_SHIFT != 0)
         }
         _ => false,
     }
@@ -107,11 +99,19 @@ fn main() {
         println!("[SERVER] Connection verified!");
     }
 
-    println!("[SERVER] Press Ctrl+Shift+1 to toggle REMOTE/LOCAL mode");
+    println!("[SERVER] Press | (Shift+Backslash) to toggle REMOTE/LOCAL mode");
 
     let stream = Mutex::new(stream);
 
     run_capture(move |event| {
+        // Debug: log key events to find working hotkey
+        match &event {
+            CaptureEvent::KeyDown { keycode, modifiers } => {
+                println!("[DEBUG] KeyDown keycode=0x{:02X} ({}) mods=0x{:02X}", keycode, keycode, modifiers);
+            }
+            _ => {}
+        }
+
         if is_hotkey(&event) {
             toggle_mode(&stream);
             return true; // Always suppress the hotkey itself
