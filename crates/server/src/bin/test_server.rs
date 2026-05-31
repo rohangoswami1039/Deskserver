@@ -157,13 +157,16 @@ fn main() {
                 Some(InputMsg::Wheel { dx: *dx, dy: *dy })
             }
             CaptureEvent::KeyDown { keycode, modifiers } => {
-                to_neutral_key(*keycode).map(|key| InputMsg::KeyDown {
+                let neutral = to_neutral_key(*keycode);
+                println!("[SERVER] KeyDown: raw=0x{:02X} ({}) → neutral={:?} mods=0x{:02X}", keycode, keycode, neutral, modifiers);
+                neutral.map(|key| InputMsg::KeyDown {
                     key,
                     modifiers: *modifiers,
                 })
             }
             CaptureEvent::KeyUp { keycode, modifiers } => {
-                to_neutral_key(*keycode).map(|key| InputMsg::KeyUp {
+                let neutral = to_neutral_key(*keycode);
+                neutral.map(|key| InputMsg::KeyUp {
                     key,
                     modifiers: *modifiers,
                 })

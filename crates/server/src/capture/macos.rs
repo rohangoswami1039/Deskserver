@@ -65,7 +65,7 @@ const KCG_SCROLL_WHEEL_EVENT_DELTA_AXIS_1: u32 = 11;
 const KCG_SCROLL_WHEEL_EVENT_DELTA_AXIS_2: u32 = 12;
 
 // Tap location/placement/options
-const KCG_SESSION_EVENT_TAP: u32 = 1; // Session level — better suppression
+const KCG_HID_EVENT_TAP: u32 = 0;
 const KCG_HEAD_INSERT_EVENT_TAP: u32 = 0;
 const KCG_EVENT_TAP_OPTION_DEFAULT: u32 = 0;
 
@@ -135,6 +135,15 @@ unsafe extern "C" fn tap_callback(
     event: CGEventRef,
     _user_info: *mut c_void,
 ) -> CGEventRef {
+    // Log all event types to debug keyboard capture
+    if event_type != KCG_EVENT_MOUSE_MOVED
+        && event_type != KCG_EVENT_LEFT_MOUSE_DRAGGED
+        && event_type != KCG_EVENT_RIGHT_MOUSE_DRAGGED
+        && event_type != KCG_EVENT_OTHER_MOUSE_DRAGGED
+    {
+        println!("[TAP] event_type={} (KeyDown=10, KeyUp=11, FlagsChanged=12)", event_type);
+    }
+
     // Re-enable tap on timeout
     if event_type == KCG_EVENT_TAP_DISABLED_BY_TIMEOUT {
         println!("[CAPTURE] Tap disabled by timeout — re-enabling");
@@ -213,26 +222,12 @@ pub fn run<F: FnMut(CaptureEvent) -> bool + 'static>(callback: F) {
         *cb.borrow_mut() = Some(Box::new(callback));
     });
 
-    // Build event mask with all event types we care about
-    let mask: CGEventMask =
-        (1 << KCG_EVENT_LEFT_MOUSE_DOWN)
-        | (1 << KCG_EVENT_LEFT_MOUSE_UP)
-        | (1 << KCG_EVENT_RIGHT_MOUSE_DOWN)
-        | (1 << KCG_EVENT_RIGHT_MOUSE_UP)
-        | (1 << KCG_EVENT_MOUSE_MOVED)
-        | (1 << KCG_EVENT_LEFT_MOUSE_DRAGGED)
-        | (1 << KCG_EVENT_RIGHT_MOUSE_DRAGGED)
-        | (1 << KCG_EVENT_KEY_DOWN)
-        | (1 << KCG_EVENT_KEY_UP)
-        | (1 << KCG_EVENT_FLAGS_CHANGED)
-        | (1 << KCG_EVENT_SCROLL_WHEEL)
-        | (1 << KCG_EVENT_OTHER_MOUSE_DOWN)
-        | (1 << KCG_EVENT_OTHER_MOUSE_UP)
-        | (1 << KCG_EVENT_OTHER_MOUSE_DRAGGED);
+    // Use ALL events mask to ensure keyboard events are captured
+    let mask: CGEventMask = !0u64; // kCGEventMaskForAllEvents
 
     unsafe {
         let tap = CGEventTapCreate(
-            KCG_SESSION_EVENT_TAP,
+            KCG_HID_EVENT_TAP,
             KCG_HEAD_INSERT_EVENT_TAP,
             KCG_EVENT_TAP_OPTION_DEFAULT,
             mask,
