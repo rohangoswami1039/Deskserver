@@ -1,5 +1,8 @@
 use kvm_server_lib::capture::{run_capture, CaptureEvent};
-use deskserver_common::{write_msg, InputMsg, MOD_CTRL, MOD_SHIFT};
+use deskserver_common::{write_msg, InputMsg, MOD_CTRL};
+use std::sync::atomic::AtomicBool;
+
+static SPACE_HELD: AtomicBool = AtomicBool::new(false);
 use std::net::TcpListener;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Mutex;
@@ -15,16 +18,38 @@ const LOCAL: u8 = 0;
 const REMOTE: u8 = 1;
 static MODE: AtomicU8 = AtomicU8::new(LOCAL);
 
+fn is_space(keycode: u32) -> bool {
+    #[cfg(target_os = "macos")]
+    { keycode == 0x31 }
+    #[cfg(target_os = "windows")]
+    { keycode == 0x20 }
+}
+
+fn is_q(keycode: u32) -> bool {
+    #[cfg(target_os = "macos")]
+    { keycode == 0x0C }
+    #[cfg(target_os = "windows")]
+    { keycode == 0x51 }
+}
+
+fn track_space(event: &CaptureEvent) {
+    match event {
+        CaptureEvent::KeyDown { keycode, .. } if is_space(*keycode) => {
+            SPACE_HELD.store(true, Ordering::SeqCst);
+        }
+        CaptureEvent::KeyUp { keycode, .. } if is_space(*keycode) => {
+            SPACE_HELD.store(false, Ordering::SeqCst);
+        }
+        _ => {}
+    }
+}
+
 fn is_hotkey(event: &CaptureEvent) -> bool {
     match event {
         CaptureEvent::KeyDown { keycode, modifiers } => {
-            let is_space = {
-                #[cfg(target_os = "macos")]
-                { *keycode == 0x31 }
-                #[cfg(target_os = "windows")]
-                { *keycode == 0x20 }
-            };
-            is_space && (*modifiers & MOD_CTRL != 0) && (*modifiers & MOD_SHIFT != 0)
+            is_q(*keycode)
+                && (*modifiers & MOD_CTRL != 0)
+                && SPACE_HELD.load(Ordering::SeqCst)
         }
         _ => false,
     }
@@ -76,6 +101,8 @@ fn main() {
     let stream = Mutex::new(stream);
 
     run_capture(move |event| {
+        track_space(&event);
+
         if is_hotkey(&event) {
             toggle_mode(&stream);
             return true; // Always suppress the hotkey itself
