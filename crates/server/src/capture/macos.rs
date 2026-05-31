@@ -270,10 +270,17 @@ pub fn show_cursor() {
 }
 
 pub fn warp_cursor_to_center() {
+    let (cx, cy) = get_screen_center();
+    unsafe {
+        CGWarpMouseCursorPosition(CGPoint { x: cx, y: cy });
+    }
+}
+
+pub fn get_screen_center() -> (f64, f64) {
     unsafe {
         let display = CGMainDisplayID();
         let w = CGDisplayPixelsWide(display) as f64;
         let h = CGDisplayPixelsHigh(display) as f64;
-        CGWarpMouseCursorPosition(CGPoint { x: w / 2.0, y: h / 2.0 });
+        (w / 2.0, h / 2.0)
     }
 }

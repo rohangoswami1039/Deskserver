@@ -125,6 +125,18 @@ fn main() {
 
     let stream = Mutex::new(stream);
 
+    // Get screen center for delta calculation
+    let (center_x, center_y) = {
+        #[cfg(target_os = "macos")]
+        {
+            kvm_server_lib::capture::macos::get_screen_center()
+        }
+        #[cfg(target_os = "windows")]
+        {
+            (960.0, 540.0) // TODO: get actual screen center on Windows
+        }
+    };
+
     run_capture(move |event| {
         if is_hotkey(&event) {
             toggle_mode(&stream);
@@ -135,15 +147,20 @@ fn main() {
             return false;
         }
 
-        // REMOTE mode — warp cursor back to center to freeze it
-        #[cfg(target_os = "macos")]
-        if matches!(&event, CaptureEvent::MouseMove { .. }) {
-            kvm_server_lib::capture::macos::warp_cursor_to_center();
-        }
-
+        // REMOTE mode — compute delta from center, then warp back
         let msg = match &event {
             CaptureEvent::MouseMove { x, y } => {
-                Some(InputMsg::MouseMove { x: *x, y: *y })
+                let dx = *x - center_x;
+                let dy = *y - center_y;
+                // Warp cursor back to center to keep capturing deltas
+                #[cfg(target_os = "macos")]
+                kvm_server_lib::capture::macos::warp_cursor_to_center();
+                // Only send if there's actual movement (ignore warp-back events)
+                if dx.abs() > 0.5 || dy.abs() > 0.5 {
+                    Some(InputMsg::MouseMove { x: dx, y: dy })
+                } else {
+                    None
+                }
             }
             CaptureEvent::MouseButton { button, pressed } => {
                 Some(InputMsg::MouseButton { button: *button, pressed: *pressed })

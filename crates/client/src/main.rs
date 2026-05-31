@@ -43,6 +43,7 @@ fn main() {
 
     let mut enigo = Enigo::new(&Settings::default()).expect("failed to create Enigo");
     let mut msg_count: u64 = 0;
+    let mut remote_mode = false;
 
     loop {
         match read_msg(&mut stream) {
@@ -50,10 +51,19 @@ fn main() {
                 msg_count += 1;
                 match msg {
                     InputMsg::MouseMove { x, y } => {
-                        if msg_count <= 10 {
-                            println!("[CLIENT] #{}: MouseMove({:.0}, {:.0}) — moving cursor", msg_count, x, y);
+                        if remote_mode {
+                            // In REMOTE mode, x/y are deltas from server
+                            if msg_count <= 10 {
+                                println!("[CLIENT] #{}: MouseMove delta({:.0}, {:.0}) — relative move", msg_count, x, y);
+                            }
+                            enigo.move_mouse(x as i32, y as i32, Coordinate::Rel).ok();
+                        } else {
+                            // Test messages use absolute coords
+                            if msg_count <= 10 {
+                                println!("[CLIENT] #{}: MouseMove({:.0}, {:.0}) — absolute move", msg_count, x, y);
+                            }
+                            enigo.move_mouse(x as i32, y as i32, Coordinate::Abs).ok();
                         }
-                        enigo.move_mouse(x as i32, y as i32, Coordinate::Abs).ok();
                     }
                     InputMsg::MouseButton { button, pressed } => {
                         let action = if pressed { "pressing" } else { "releasing" };
@@ -83,9 +93,11 @@ fn main() {
                         }
                     }
                     InputMsg::ScreenEnter => {
+                        remote_mode = true;
                         println!("[CLIENT] #{}: ScreenEnter — server switched to REMOTE, now controlling this machine", msg_count);
                     }
                     InputMsg::ScreenLeave => {
+                        remote_mode = false;
                         println!("[CLIENT] #{}: ScreenLeave — server switched to LOCAL, control returned", msg_count);
                     }
                 }
