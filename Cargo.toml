@@ -13,3 +13,7 @@ deskserver-common = { path = "crates/common" }
 [[test]]
 name = "protocol_test"
 path = "tests/integration/protocol_test.rs"
+
+[[test]]
+name = "keymap_test"
+path = "tests/integration/keymap_test.rs"

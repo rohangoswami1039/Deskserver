@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+
+pub mod keymap;
 use std::io::{self, Read, Write};
 
 const MAX_FRAME_SIZE: u32 = 1024 * 1024; // 1 MiB
