@@ -111,3 +111,43 @@ fn multiple_messages_in_sequence() {
         assert_eq!(format!("{:?}", decoded), format!("{:?}", expected));
     }
 }
+
+#[test]
+fn roundtrip_key_down() {
+    let msg = InputMsg::KeyDown { key: 42, modifiers: 0x03 };
+    let mut buf: Vec<u8> = Vec::new();
+    write_msg(&mut buf, &msg).unwrap();
+    let mut cursor = Cursor::new(&buf);
+    let decoded = read_msg(&mut cursor).unwrap();
+    assert_eq!(decoded, msg);
+}
+
+#[test]
+fn roundtrip_key_up() {
+    let msg = InputMsg::KeyUp { key: 42, modifiers: 0x01 };
+    let mut buf: Vec<u8> = Vec::new();
+    write_msg(&mut buf, &msg).unwrap();
+    let mut cursor = Cursor::new(&buf);
+    let decoded = read_msg(&mut cursor).unwrap();
+    assert_eq!(decoded, msg);
+}
+
+#[test]
+fn roundtrip_screen_enter() {
+    let msg = InputMsg::ScreenEnter;
+    let mut buf: Vec<u8> = Vec::new();
+    write_msg(&mut buf, &msg).unwrap();
+    let mut cursor = Cursor::new(&buf);
+    let decoded = read_msg(&mut cursor).unwrap();
+    assert_eq!(decoded, msg);
+}
+
+#[test]
+fn roundtrip_screen_leave() {
+    let msg = InputMsg::ScreenLeave;
+    let mut buf: Vec<u8> = Vec::new();
+    write_msg(&mut buf, &msg).unwrap();
+    let mut cursor = Cursor::new(&buf);
+    let decoded = read_msg(&mut cursor).unwrap();
+    assert_eq!(decoded, msg);
+}

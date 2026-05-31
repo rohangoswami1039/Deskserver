@@ -8,6 +8,10 @@ pub enum InputMsg {
     MouseMove { x: f64, y: f64 },
     MouseButton { button: MouseButton, pressed: bool },
     Wheel { dx: i64, dy: i64 },
+    KeyDown { key: u32, modifiers: u8 },
+    KeyUp { key: u32, modifiers: u8 },
+    ScreenEnter,
+    ScreenLeave,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
@@ -16,6 +20,12 @@ pub enum MouseButton {
     Right,
     Middle,
 }
+
+// Modifier bitfield constants
+pub const MOD_SHIFT: u8 = 0x01;
+pub const MOD_CTRL: u8 = 0x02;
+pub const MOD_ALT: u8 = 0x04;
+pub const MOD_META: u8 = 0x08;
 
 /// Write a length-prefixed bincode frame to the writer.
 pub fn write_msg<W: Write>(writer: &mut W, msg: &InputMsg) -> io::Result<()> {
