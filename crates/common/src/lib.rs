@@ -3,14 +3,14 @@ use std::io::{self, Read, Write};
 
 const MAX_FRAME_SIZE: u32 = 1024 * 1024; // 1 MiB
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum InputMsg {
     MouseMove { x: f64, y: f64 },
     MouseButton { button: MouseButton, pressed: bool },
     Wheel { dx: i64, dy: i64 },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum MouseButton {
     Left,
     Right,
