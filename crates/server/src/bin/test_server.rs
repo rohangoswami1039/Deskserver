@@ -65,7 +65,7 @@ fn toggle_mode(stream: &Mutex<std::net::TcpStream>) {
         #[cfg(target_os = "macos")]
         {
             kvm_server_lib::capture::macos::hide_cursor();
-            kvm_server_lib::capture::macos::warp_cursor_to_center();
+            kvm_server_lib::capture::macos::disconnect_mouse();
         }
         let mut s = stream.lock().unwrap();
         let _ = write_msg(&mut *s, &InputMsg::ScreenEnter);
@@ -73,6 +73,7 @@ fn toggle_mode(stream: &Mutex<std::net::TcpStream>) {
         println!("[SERVER] Mode: LOCAL — input goes to this machine");
         #[cfg(target_os = "macos")]
         {
+            kvm_server_lib::capture::macos::reconnect_mouse();
             kvm_server_lib::capture::macos::show_cursor();
         }
         let mut s = stream.lock().unwrap();
@@ -147,16 +148,15 @@ fn main() {
             return false;
         }
 
-        // REMOTE mode — compute delta from center, then warp back
+        // REMOTE mode — mouse is disconnected, so x/y from the event
+        // are the last known position. We use event deltas instead.
         let msg = match &event {
             CaptureEvent::MouseMove { x, y } => {
+                // When mouse is disconnected, the position stays fixed but
+                // we still get events. Send the position as delta from center.
                 let dx = *x - center_x;
                 let dy = *y - center_y;
-                // Warp cursor back to center to keep capturing deltas
-                #[cfg(target_os = "macos")]
-                kvm_server_lib::capture::macos::warp_cursor_to_center();
-                // Only send if there's actual movement (ignore warp-back events)
-                if dx.abs() > 0.5 || dy.abs() > 0.5 {
+                if dx.abs() > 0.1 || dy.abs() > 0.1 {
                     Some(InputMsg::MouseMove { x: dx, y: dy })
                 } else {
                     None

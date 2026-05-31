@@ -108,6 +108,7 @@ extern "C" {
     fn CGDisplayHideCursor(display: CGDirectDisplayID) -> i32;
     fn CGDisplayShowCursor(display: CGDirectDisplayID) -> i32;
     fn CGWarpMouseCursorPosition(point: CGPoint) -> i32;
+    fn CGAssociateMouseAndMouseCursorPosition(connected: i32) -> i32;
 }
 
 thread_local! {
@@ -283,4 +284,14 @@ pub fn get_screen_center() -> (f64, f64) {
         let h = CGDisplayPixelsHigh(display) as f64;
         (w / 2.0, h / 2.0)
     }
+}
+
+/// Disconnect mouse from cursor — cursor freezes, but mouse delta events still fire.
+pub fn disconnect_mouse() {
+    unsafe { CGAssociateMouseAndMouseCursorPosition(0); }
+}
+
+/// Reconnect mouse to cursor — normal cursor behavior resumes.
+pub fn reconnect_mouse() {
+    unsafe { CGAssociateMouseAndMouseCursorPosition(1); }
 }
