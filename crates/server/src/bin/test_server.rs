@@ -19,31 +19,29 @@ const LOCAL: u8 = 0;
 const REMOTE: u8 = 1;
 static MODE: AtomicU8 = AtomicU8::new(LOCAL);
 
-// Double-tap Right Shift to toggle REMOTE/LOCAL
 use std::cell::RefCell;
 thread_local! {
-    static LAST_RSHIFT_TAP: RefCell<Option<Instant>> = RefCell::new(None);
+    static LAST_LSHIFT_TAP: RefCell<Option<Instant>> = RefCell::new(None);
 }
 
 fn is_hotkey(event: &CaptureEvent) -> bool {
-    // Detect Left Shift key-up (release) — double-tap within 400ms
     match event {
         CaptureEvent::KeyUp { keycode, .. } => {
             let is_left_shift = {
                 #[cfg(target_os = "macos")]
-                { *keycode == 0x38 } // Left Shift on macOS
+                { *keycode == 0x38 }
                 #[cfg(target_os = "windows")]
-                { *keycode == 0xA0 } // VK_LSHIFT on Windows
+                { *keycode == 0xA0 }
             };
             if !is_left_shift {
                 return false;
             }
-            LAST_RSHIFT_TAP.with(|last| {
+            LAST_LSHIFT_TAP.with(|last| {
                 let now = Instant::now();
                 let mut last = last.borrow_mut();
                 if let Some(prev) = *last {
                     if now.duration_since(prev).as_millis() < 400 {
-                        *last = None; // Reset so triple-tap doesn't re-trigger
+                        *last = None;
                         return true;
                     }
                 }
@@ -52,34 +50,6 @@ fn is_hotkey(event: &CaptureEvent) -> bool {
             })
         }
         _ => false,
-    }
-}
-
-fn toggle_mode(stream: &Mutex<std::net::TcpStream>) {
-    let current = MODE.load(Ordering::SeqCst);
-    let new_mode = if current == LOCAL { REMOTE } else { LOCAL };
-    MODE.store(new_mode, Ordering::SeqCst);
-
-    if new_mode == REMOTE {
-        println!("[SERVER] Mode: REMOTE — forwarding input to client");
-        #[cfg(target_os = "macos")]
-        {
-            kvm_server_lib::capture::macos::hide_cursor();
-            kvm_server_lib::capture::macos::disconnect_mouse();
-        }
-        let mut s = stream.lock().unwrap();
-        let _ = write_msg(&mut *s, &InputMsg::ScreenEnter { x: 0.0, y: 0.0 });
-    } else {
-        println!("[SERVER] Mode: LOCAL — input goes to this machine");
-        #[cfg(target_os = "macos")]
-        {
-            kvm_server_lib::capture::macos::reconnect_mouse();
-            kvm_server_lib::capture::macos::show_cursor();
-            kvm_server_lib::capture::macos::show_cursor();
-            kvm_server_lib::capture::macos::show_cursor();
-        }
-        let mut s = stream.lock().unwrap();
-        let _ = write_msg(&mut *s, &InputMsg::ScreenLeave);
     }
 }
 
@@ -101,7 +71,7 @@ fn main() {
     stream.set_nodelay(true).expect("[SERVER] ERROR: failed to set TCP_NODELAY");
     println!("[SERVER] Client connected: {}", addr);
 
-    // Connection test: send 3 test messages to verify the pipe
+    // Connection test
     {
         let mut s = &stream;
         let test_msgs: Vec<(&str, InputMsg)> = vec![
@@ -109,138 +79,164 @@ fn main() {
             ("MouseButton(Left, press)", InputMsg::MouseButton { button: MouseButton::Left, pressed: true }),
             ("MouseButton(Left, release)", InputMsg::MouseButton { button: MouseButton::Left, pressed: false }),
         ];
-        println!("[SERVER] Sending {} test messages to verify connection...", test_msgs.len());
+        println!("[SERVER] Sending {} test messages...", test_msgs.len());
         for (i, (label, msg)) in test_msgs.iter().enumerate() {
             match write_msg(&mut s, msg) {
                 Ok(()) => println!("[SERVER] Test {}/{}: {} — OK", i + 1, test_msgs.len(), label),
                 Err(e) => {
-                    eprintln!("[SERVER] ERROR: Test message failed: {} — {}", label, e);
-                    eprintln!("[SERVER] Client disconnected. Exiting.");
+                    eprintln!("[SERVER] ERROR: {} — {}", label, e);
                     std::process::exit(1);
                 }
             }
-            thread::sleep(Duration::from_millis(500));
+            thread::sleep(Duration::from_millis(300));
         }
         println!("[SERVER] Connection verified!");
     }
 
-    println!("[SERVER] Double-tap Left Shift to toggle REMOTE/LOCAL mode");
+    println!("[SERVER] Double-tap Left Shift to toggle | Move cursor to left edge to cross");
 
     let stream = Mutex::new(stream);
 
-    // Auto-detect server screen resolution
+    // Auto-detect screen resolution
     let (server_width, server_height) = {
         #[cfg(target_os = "macos")]
         {
             let (w, h) = kvm_server_lib::capture::macos::get_screen_center();
-            (w * 2.0, h * 2.0) // get_screen_center returns center, so double for full size
+            (w * 2.0, h * 2.0)
         }
         #[cfg(target_os = "windows")]
         { (1920.0_f64, 1080.0_f64) }
     };
     let client_width: f64 = 1920.0;
     let client_height: f64 = 1080.0;
-    println!("[SERVER] Screen size: {:.0}x{:.0}", server_width, server_height);
+    println!("[SERVER] Screen: {:.0}x{:.0}", server_width, server_height);
 
     let mut virtual_x: f64 = 0.0;
     let mut virtual_y: f64 = 0.0;
-    let mut skip_deltas: u8 = 0;
-    let mut saved_cursor_x: f64 = 0.0;
-    let mut saved_cursor_y: f64 = 0.0;
+    let mut saved_x: f64 = 0.0;
+    let mut saved_y: f64 = 0.0;
+    let mut hide_count: i32 = 0; // Track hide/show calls for proper cleanup
+
+    // Helper closures for enter/exit REMOTE
+    let enter_remote = |stream: &Mutex<std::net::TcpStream>,
+                        virtual_x: &mut f64, virtual_y: &mut f64,
+                        saved_x: &mut f64, saved_y: &mut f64,
+                        hide_count: &mut i32,
+                        cursor_x: f64, cursor_y: f64,
+                        entry_x: f64, entry_y: f64| {
+        MODE.store(REMOTE, Ordering::SeqCst);
+        *virtual_x = entry_x;
+        *virtual_y = entry_y;
+        *saved_x = cursor_x;
+        *saved_y = cursor_y;
+
+        println!("[SERVER] → REMOTE (entry {:.0},{:.0}) saved Mac ({:.0},{:.0})", entry_x, entry_y, cursor_x, cursor_y);
+
+        #[cfg(target_os = "macos")]
+        {
+            kvm_server_lib::capture::macos::hide_cursor();
+            *hide_count += 1;
+        }
+
+        let mut s = stream.lock().unwrap();
+        let _ = write_msg(&mut *s, &InputMsg::ScreenEnter { x: entry_x, y: entry_y });
+    };
+
+    let exit_remote = |stream: &Mutex<std::net::TcpStream>,
+                       saved_x: f64, saved_y: f64,
+                       hide_count: &mut i32| {
+        MODE.store(LOCAL, Ordering::SeqCst);
+
+        println!("[SERVER] → LOCAL (restore {:.0},{:.0})", saved_x, saved_y);
+
+        #[cfg(target_os = "macos")]
+        {
+            // Warp cursor to saved position FIRST, then show
+            kvm_server_lib::capture::macos::warp_cursor_to(saved_x, saved_y);
+            // Show cursor — undo all hides
+            while *hide_count > 0 {
+                kvm_server_lib::capture::macos::show_cursor();
+                *hide_count -= 1;
+            }
+            // Extra show to be safe
+            kvm_server_lib::capture::macos::show_cursor();
+        }
+
+        let mut s = stream.lock().unwrap();
+        let _ = write_msg(&mut *s, &InputMsg::ScreenLeave);
+    };
 
     run_capture(move |event| {
+        // Hotkey toggle
         if is_hotkey(&event) {
-            toggle_mode(&stream);
-            return true; // Always suppress the hotkey itself
+            if MODE.load(Ordering::SeqCst) == LOCAL {
+                enter_remote(&stream, &mut virtual_x, &mut virtual_y,
+                    &mut saved_x, &mut saved_y, &mut hide_count,
+                    server_width / 2.0, server_height / 2.0,
+                    client_width / 2.0, client_height / 2.0);
+            } else {
+                exit_remote(&stream, saved_x, saved_y, &mut hide_count);
+            }
+            return true;
         }
 
         if MODE.load(Ordering::SeqCst) == LOCAL {
-            // Skip transition events after returning from REMOTE
-            if skip_deltas > 0 {
-                if matches!(&event, CaptureEvent::MouseMove { .. }) {
-                    skip_deltas -= 1;
-                }
-                return false; // Pass through but don't check edges yet
-            }
-
-            // Check for edge crossing — Windows is on the LEFT of Mac
+            // Edge crossing check — Windows is on the LEFT
             if let CaptureEvent::MouseMove { x, y, .. } = &event {
-                // Debug: log cursor position near edges
-                if *x <= 5.0 || *x >= server_width - 5.0 {
-                    println!("[SERVER] Cursor near edge: x={:.0}, y={:.0} (screen={:.0}x{:.0})", x, y, server_width, server_height);
-                }
-
-                if *x <= 2.0 {
-                    // Hit LEFT edge — cross to remote (Windows is on the left)
+                if *x <= 1.0 {
                     let pct = *y / server_height;
                     let entry_y = pct * client_height;
-                    let entry_x = client_width; // Enter from RIGHT edge of Windows
+                    let entry_x = client_width - 1.0;
 
-                    MODE.store(REMOTE, Ordering::SeqCst);
-                    virtual_x = entry_x;
-                    virtual_y = entry_y;
-                    saved_cursor_x = *x;
-                    saved_cursor_y = *y;
-                    skip_deltas = 2;
-
-                    println!("[SERVER] Edge crossing → REMOTE (entry at {:.0}, {:.0}), saved Mac pos ({:.0}, {:.0})", entry_x, entry_y, saved_cursor_x, saved_cursor_y);
-
-                    #[cfg(target_os = "macos")]
-                    {
-                        kvm_server_lib::capture::macos::hide_cursor();
-                        kvm_server_lib::capture::macos::disconnect_mouse();
-                    }
-
-                    let mut s = stream.lock().unwrap();
-                    let _ = write_msg(&mut *s, &InputMsg::ScreenEnter { x: entry_x, y: entry_y });
+                    enter_remote(&stream, &mut virtual_x, &mut virtual_y,
+                        &mut saved_x, &mut saved_y, &mut hide_count,
+                        *x, *y, entry_x, entry_y);
                     return true;
                 }
             }
-            return false;
+            return false; // Pass through in LOCAL
         }
 
-        // REMOTE mode — cursor hidden + disconnected, just read raw deltas
+        // ═══════════════════════════════════════════
+        // REMOTE MODE
+        // ═══════════════════════════════════════════
+        // Strategy: read raw hardware deltas (unaffected by cursor warps),
+        // forward to client, then warp Mac cursor back to saved position.
+        // CGWarpMouseCursorPosition does NOT generate new mouse events (Apple docs),
+        // so no event skipping needed. The delta fields (kCGMouseEventDeltaX/Y)
+        // reflect physical mouse movement, not cursor position changes.
+
         let msg = match &event {
             CaptureEvent::MouseMove { delta_x, delta_y, .. } => {
-                // Skip initial events after crossing
-                if skip_deltas > 0 {
-                    skip_deltas -= 1;
+                // Raw hardware deltas — not affected by our warps
+                let dx = *delta_x;
+                let dy = *delta_y;
+
+                // Ignore zero-deltas (system noise or warp artifacts if any)
+                if dx.abs() < 0.5 && dy.abs() < 0.5 {
                     return true;
                 }
 
-                virtual_x += *delta_x;
-                virtual_y += *delta_y;
+                virtual_x += dx;
+                virtual_y += dy;
 
-                // Check for return crossing (past RIGHT edge of Windows — back to Mac)
+                // Return crossing: virtual cursor past RIGHT edge → back to Mac
                 if virtual_x > client_width {
-                    MODE.store(LOCAL, Ordering::SeqCst);
-                    skip_deltas = 2;
-
-                    println!("[SERVER] Return crossing → LOCAL");
-
-                    #[cfg(target_os = "macos")]
-                    {
-                        kvm_server_lib::capture::macos::reconnect_mouse();
-                        kvm_server_lib::capture::macos::warp_cursor_to(saved_cursor_x, saved_cursor_y);
-                        kvm_server_lib::capture::macos::show_cursor();
-                        kvm_server_lib::capture::macos::show_cursor();
-                        kvm_server_lib::capture::macos::show_cursor();
-                    }
-
-                    let mut s = stream.lock().unwrap();
-                    let _ = write_msg(&mut *s, &InputMsg::ScreenLeave);
+                    exit_remote(&stream, saved_x, saved_y, &mut hide_count);
                     return true;
                 }
 
-                // Clamp virtual cursor
+                // Clamp
                 virtual_x = virtual_x.clamp(0.0, client_width);
                 virtual_y = virtual_y.clamp(0.0, client_height);
 
-                if delta_x.abs() > 0.1 || delta_y.abs() > 0.1 {
-                    Some(InputMsg::MouseMove { x: *delta_x, y: *delta_y })
-                } else {
-                    None
-                }
+                // Warp Mac cursor back to saved position to keep it visually frozen.
+                // This does NOT generate new events (Apple docs: CGWarpMouseCursorPosition
+                // "does not generate or post an event to account for the new position").
+                #[cfg(target_os = "macos")]
+                kvm_server_lib::capture::macos::warp_cursor_to(saved_x, saved_y);
+
+                Some(InputMsg::MouseMove { x: dx, y: dy })
             }
             CaptureEvent::MouseButton { button, pressed } => {
                 Some(InputMsg::MouseButton { button: *button, pressed: *pressed })
@@ -249,16 +245,13 @@ fn main() {
                 Some(InputMsg::Wheel { dx: *dx, dy: *dy })
             }
             CaptureEvent::KeyDown { keycode, modifiers } => {
-                let neutral = to_neutral_key(*keycode);
-                println!("[SERVER] KeyDown: raw=0x{:02X} ({}) → neutral={:?} mods=0x{:02X}", keycode, keycode, neutral, modifiers);
-                neutral.map(|key| InputMsg::KeyDown {
+                to_neutral_key(*keycode).map(|key| InputMsg::KeyDown {
                     key,
                     modifiers: *modifiers,
                 })
             }
             CaptureEvent::KeyUp { keycode, modifiers } => {
-                let neutral = to_neutral_key(*keycode);
-                neutral.map(|key| InputMsg::KeyUp {
+                to_neutral_key(*keycode).map(|key| InputMsg::KeyUp {
                     key,
                     modifiers: *modifiers,
                 })
