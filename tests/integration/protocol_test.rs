@@ -134,7 +134,7 @@ fn roundtrip_key_up() {
 
 #[test]
 fn roundtrip_screen_enter() {
-    let msg = InputMsg::ScreenEnter;
+    let msg = InputMsg::ScreenEnter { x: 150.5, y: 300.0 };
     let mut buf: Vec<u8> = Vec::new();
     write_msg(&mut buf, &msg).unwrap();
     let mut cursor = Cursor::new(&buf);

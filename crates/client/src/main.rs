@@ -92,9 +92,10 @@ fn main() {
                             println!("[CLIENT] #{}: KeyUp key={} — unmapped, skipping", msg_count, key);
                         }
                     }
-                    InputMsg::ScreenEnter => {
+                    InputMsg::ScreenEnter { x, y } => {
                         remote_mode = true;
-                        println!("[CLIENT] #{}: ScreenEnter — server switched to REMOTE, now controlling this machine", msg_count);
+                        println!("[CLIENT] #{}: ScreenEnter at ({:.0}, {:.0}) — now controlling this machine", msg_count, x, y);
+                        enigo.move_mouse(x as i32, y as i32, Coordinate::Abs).ok();
                     }
                     InputMsg::ScreenLeave => {
                         remote_mode = false;

@@ -78,7 +78,7 @@ fn handle_server_stream(mut stream: TcpStream, peer: String, state: Arc<Mutex<Ap
         match read_msg(&mut stream) {
             Ok(msg) => {
                 match msg {
-                    InputMsg::ScreenEnter => {
+                    InputMsg::ScreenEnter { .. } => {
                         let mut s = state.lock().unwrap();
                         s.mode = InputMode::Remote;
                         s.log(
@@ -148,7 +148,7 @@ fn handle_client_stream(mut stream: TcpStream, server_addr: String, state: Arc<M
         match read_msg(&mut stream) {
             Ok(msg) => {
                 match msg {
-                    InputMsg::ScreenEnter => {
+                    InputMsg::ScreenEnter { .. } => {
                         let mut s = state.lock().unwrap();
                         s.mode = InputMode::Remote;
                         s.log("ScreenEnter received", LogLevel::Mode);

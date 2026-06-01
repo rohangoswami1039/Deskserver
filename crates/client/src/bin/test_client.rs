@@ -54,8 +54,8 @@ fn main() {
                     InputMsg::KeyUp { key, modifiers } => {
                         println!("[CLIENT] Received #{}: KeyUp key={}, modifiers={}", count, key, modifiers);
                     }
-                    InputMsg::ScreenEnter => {
-                        println!("[CLIENT] Received #{}: ScreenEnter", count);
+                    InputMsg::ScreenEnter { x, y } => {
+                        println!("[CLIENT] Received #{}: ScreenEnter at ({:.0}, {:.0})", count, x, y);
                     }
                     InputMsg::ScreenLeave => {
                         println!("[CLIENT] Received #{}: ScreenLeave", count);

@@ -12,7 +12,7 @@ pub enum InputMsg {
     Wheel { dx: i64, dy: i64 },
     KeyDown { key: u32, modifiers: u8 },
     KeyUp { key: u32, modifiers: u8 },
-    ScreenEnter,
+    ScreenEnter { x: f64, y: f64 },
     ScreenLeave,
 }
 

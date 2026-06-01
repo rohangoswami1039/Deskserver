@@ -68,7 +68,7 @@ fn toggle_mode(stream: &Mutex<std::net::TcpStream>) {
             kvm_server_lib::capture::macos::disconnect_mouse();
         }
         let mut s = stream.lock().unwrap();
-        let _ = write_msg(&mut *s, &InputMsg::ScreenEnter);
+        let _ = write_msg(&mut *s, &InputMsg::ScreenEnter { x: 0.0, y: 0.0 });
     } else {
         println!("[SERVER] Mode: LOCAL — input goes to this machine");
         #[cfg(target_os = "macos")]
