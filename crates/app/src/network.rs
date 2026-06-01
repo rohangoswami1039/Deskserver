@@ -1,9 +1,30 @@
 use crate::state::{AppState, InputMode, LogLevel, NetworkCommand};
 use deskserver_common::{read_msg, write_msg, InputMsg, MouseButton};
+use enigo::{Axis, Button, Coordinate, Direction, Enigo, Keyboard, Mouse, Settings};
 use std::io::ErrorKind;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
+
+#[cfg(target_os = "macos")]
+use deskserver_common::keymap::neutral_to_macos_keycode;
+#[cfg(target_os = "windows")]
+use deskserver_common::keymap::neutral_to_windows_vk;
+
+fn map_button(b: &MouseButton) -> Button {
+    match b {
+        MouseButton::Left => Button::Left,
+        MouseButton::Right => Button::Right,
+        MouseButton::Middle => Button::Middle,
+    }
+}
+
+fn neutral_to_local_keycode(neutral_key: u32) -> Option<u16> {
+    #[cfg(target_os = "macos")]
+    { neutral_to_macos_keycode(neutral_key).map(|k| k as u16) }
+    #[cfg(target_os = "windows")]
+    { neutral_to_windows_vk(neutral_key).map(|k| k as u16) }
+}
 
 pub fn spawn_network_thread(state: Arc<Mutex<AppState>>) -> mpsc::Sender<NetworkCommand> {
     let (tx, rx) = mpsc::channel::<NetworkCommand>();
@@ -188,41 +209,78 @@ fn handle_connect_to(addr: String, state: Arc<Mutex<AppState>>) {
 }
 
 fn handle_client_stream(mut stream: TcpStream, server_addr: String, state: Arc<Mutex<AppState>>) {
+    let mut enigo = match Enigo::new(&Settings::default()) {
+        Ok(e) => e,
+        Err(e) => {
+            state.lock().unwrap().log(
+                format!("Failed to create Enigo: {}", e),
+                LogLevel::Warning,
+            );
+            return;
+        }
+    };
+
+    let mut remote_mode = false;
+
     loop {
         match read_msg(&mut stream) {
             Ok(msg) => {
                 match msg {
-                    InputMsg::ScreenEnter { .. } => {
+                    InputMsg::MouseMove { x, y } => {
+                        if remote_mode {
+                            enigo.move_mouse(x as i32, y as i32, Coordinate::Rel).ok();
+                        } else {
+                            enigo.move_mouse(x as i32, y as i32, Coordinate::Abs).ok();
+                        }
+                    }
+                    InputMsg::MouseButton { button, pressed } => {
+                        let btn = map_button(&button);
+                        let dir = if pressed { Direction::Press } else { Direction::Release };
+                        enigo.button(btn, dir).ok();
+                    }
+                    InputMsg::Wheel { dy, .. } => {
+                        enigo.scroll(dy as i32, Axis::Vertical).ok();
+                    }
+                    InputMsg::KeyDown { key, .. } => {
+                        if let Some(kc) = neutral_to_local_keycode(key) {
+                            enigo.raw(kc, Direction::Press).ok();
+                        }
+                    }
+                    InputMsg::KeyUp { key, .. } => {
+                        if let Some(kc) = neutral_to_local_keycode(key) {
+                            enigo.raw(kc, Direction::Release).ok();
+                        }
+                    }
+                    InputMsg::ScreenEnter { x, y } => {
+                        remote_mode = true;
+                        enigo.move_mouse(x as i32, y as i32, Coordinate::Abs).ok();
                         let mut s = state.lock().unwrap();
                         s.mode = InputMode::Remote;
-                        s.log("ScreenEnter received", LogLevel::Mode);
+                        s.log(
+                            format!("ScreenEnter at ({:.0}, {:.0}) — controlling this machine", x, y),
+                            LogLevel::Mode,
+                        );
                     }
                     InputMsg::ScreenLeave => {
+                        remote_mode = false;
                         let mut s = state.lock().unwrap();
                         s.mode = InputMode::Local;
-                        s.log("ScreenLeave received", LogLevel::Mode);
+                        s.log("ScreenLeave — control returned to server", LogLevel::Mode);
                     }
-                    _ => {}
                 }
             }
             Err(e) if e.kind() == ErrorKind::UnexpectedEof => {
-                state
-                    .lock()
-                    .unwrap()
-                    .log(
-                        format!("Server {} disconnected", server_addr),
-                        LogLevel::Warning,
-                    );
+                state.lock().unwrap().log(
+                    format!("Server {} disconnected", server_addr),
+                    LogLevel::Warning,
+                );
                 break;
             }
             Err(e) => {
-                state
-                    .lock()
-                    .unwrap()
-                    .log(
-                        format!("Stream error from {}: {}", server_addr, e),
-                        LogLevel::Warning,
-                    );
+                state.lock().unwrap().log(
+                    format!("Stream error from {}: {}", server_addr, e),
+                    LogLevel::Warning,
+                );
                 break;
             }
         }
