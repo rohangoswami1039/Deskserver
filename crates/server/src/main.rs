@@ -126,11 +126,19 @@ fn main() {
 
     let stream = Mutex::new(stream);
 
-    // Screen dimensions (hardcoded for now — UI app will make these configurable)
-    let server_width: f64 = 1440.0;
-    let server_height: f64 = 900.0;
+    // Auto-detect server screen resolution
+    let (server_width, server_height) = {
+        #[cfg(target_os = "macos")]
+        {
+            let (w, h) = kvm_server_lib::capture::macos::get_screen_center();
+            (w * 2.0, h * 2.0) // get_screen_center returns center, so double for full size
+        }
+        #[cfg(target_os = "windows")]
+        { (1920.0_f64, 1080.0_f64) }
+    };
     let client_width: f64 = 1920.0;
     let client_height: f64 = 1080.0;
+    println!("[SERVER] Screen size: {:.0}x{:.0}", server_width, server_height);
 
     let mut virtual_x: f64 = 0.0;
     let mut virtual_y: f64 = 0.0;
@@ -143,20 +151,25 @@ fn main() {
         }
 
         if MODE.load(Ordering::SeqCst) == LOCAL {
-            // Check for edge crossing
+            // Check for edge crossing — Windows is on the LEFT of Mac
             if let CaptureEvent::MouseMove { x, y, .. } = &event {
-                if *x >= server_width - 2.0 {
-                    // Hit right edge — cross to remote
+                // Debug: log cursor position near edges
+                if *x <= 5.0 || *x >= server_width - 5.0 {
+                    println!("[SERVER] Cursor near edge: x={:.0}, y={:.0} (screen={:.0}x{:.0})", x, y, server_width, server_height);
+                }
+
+                if *x <= 2.0 {
+                    // Hit LEFT edge — cross to remote (Windows is on the left)
                     let pct = *y / server_height;
                     let entry_y = pct * client_height;
-                    let entry_x = 0.0;
+                    let entry_x = client_width; // Enter from RIGHT edge of Windows
 
                     MODE.store(REMOTE, Ordering::SeqCst);
                     virtual_x = entry_x;
                     virtual_y = entry_y;
 
                     println!("[SERVER] Edge crossing → REMOTE (entry at {:.0}, {:.0})", entry_x, entry_y);
-                    skip_deltas = 3; // Skip first 3 deltas (warp artifacts)
+                    skip_deltas = 3;
 
                     #[cfg(target_os = "macos")]
                     {
@@ -184,8 +197,8 @@ fn main() {
                 virtual_x += *delta_x;
                 virtual_y += *delta_y;
 
-                // Check for return crossing (past left edge)
-                if virtual_x < 0.0 {
+                // Check for return crossing (past RIGHT edge of Windows — back to Mac)
+                if virtual_x > client_width {
                     MODE.store(LOCAL, Ordering::SeqCst);
                     println!("[SERVER] Return crossing → LOCAL");
 
