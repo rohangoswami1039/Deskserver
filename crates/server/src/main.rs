@@ -217,7 +217,9 @@ fn main() {
                 virtual_x = virtual_x.clamp(0.0, client_width);
                 virtual_y = virtual_y.clamp(0.0, client_height);
 
+                // Debug: log deltas being forwarded
                 if delta_x.abs() > 0.1 || delta_y.abs() > 0.1 {
+                    println!("[SERVER] Forwarding delta: dx={:.1}, dy={:.1} | virtual=({:.0},{:.0})", delta_x, delta_y, virtual_x, virtual_y);
                     Some(InputMsg::MouseMove { x: *delta_x, y: *delta_y })
                 } else {
                     None
