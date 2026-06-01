@@ -89,6 +89,7 @@ pub struct AppState {
     pub network_tx: Option<mpsc::Sender<NetworkCommand>>,
     pub dragging_screen: Option<usize>,
     pub drag_offset: (f32, f32),
+    pub scan_requested: bool,
 }
 
 impl Default for AppState {
@@ -123,6 +124,7 @@ impl Default for AppState {
             network_tx: None,
             dragging_screen: None,
             drag_offset: (0.0, 0.0),
+            scan_requested: false,
         }
     }
 }

@@ -1,3 +1,4 @@
+mod discovery;
 mod network;
 mod state;
 mod tray;

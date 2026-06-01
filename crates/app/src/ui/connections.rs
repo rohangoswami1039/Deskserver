@@ -48,7 +48,12 @@ pub fn render_connections(ui: &mut egui::Ui, state: &Arc<Mutex<AppState>>) {
         }
         Role::Client => {
             ui.heading("Available Servers");
-            ui.add_space(8.0);
+            ui.add_space(4.0);
+            if ui.button("↻ Scan LAN").clicked() {
+                state.available_servers.clear();
+                state.scan_requested = true;
+            }
+            ui.add_space(4.0);
 
             if state.available_servers.is_empty() {
                 ui.label("No servers found. Enter an IP address to connect manually.");
