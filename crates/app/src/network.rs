@@ -1,5 +1,5 @@
 use crate::state::{AppState, InputMode, LogLevel, NetworkCommand};
-use deskserver_common::{read_msg, InputMsg};
+use deskserver_common::{read_msg, write_msg, InputMsg, MouseButton};
 use std::io::ErrorKind;
 use std::net::{TcpListener, TcpStream};
 use std::sync::{mpsc, Arc, Mutex};
@@ -56,10 +56,37 @@ fn handle_start_server(port: u16, state: Arc<Mutex<AppState>>) {
     // Accept one client
     match listener.accept() {
         Ok((stream, peer_addr)) => {
+            if let Err(e) = stream.set_nodelay(true) {
+                state.lock().unwrap().log(format!("set_nodelay failed: {}", e), LogLevel::Warning);
+            }
+
             state
                 .lock()
                 .unwrap()
                 .log(format!("Client connected: {}", peer_addr), LogLevel::Success);
+
+            // Send test messages to verify connection
+            {
+                let mut s = &stream;
+                let test_msgs = vec![
+                    ("MouseMove(100, 100)", InputMsg::MouseMove { x: 100.0, y: 100.0 }),
+                    ("MouseButton(Left, press)", InputMsg::MouseButton { button: MouseButton::Left, pressed: true }),
+                    ("MouseButton(Left, release)", InputMsg::MouseButton { button: MouseButton::Left, pressed: false }),
+                ];
+                for (label, msg) in &test_msgs {
+                    match write_msg(&mut s, msg) {
+                        Ok(()) => {
+                            state.lock().unwrap().log(format!("Test: {} — OK", label), LogLevel::Info);
+                        }
+                        Err(e) => {
+                            state.lock().unwrap().log(format!("Test failed: {} — {}", label, e), LogLevel::Warning);
+                            return;
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(300));
+                }
+                state.lock().unwrap().log("Connection verified!", LogLevel::Success);
+            }
 
             // Keep connection alive — read messages in a loop
             handle_server_stream(stream, peer_addr.to_string(), state.clone());
@@ -139,7 +166,10 @@ fn handle_connect_to(addr: String, state: Arc<Mutex<AppState>>) {
     };
 
     let stream = match TcpStream::connect_timeout(&socket_addr, Duration::from_secs(5)) {
-        Ok(s) => s,
+        Ok(s) => {
+            s.set_nodelay(true).ok();
+            s
+        }
         Err(e) => {
             state
                 .lock()
@@ -152,7 +182,7 @@ fn handle_connect_to(addr: String, state: Arc<Mutex<AppState>>) {
     state
         .lock()
         .unwrap()
-        .log(format!("Connected to {}", addr), LogLevel::Success);
+        .log(format!("Connected to {}", full_addr), LogLevel::Success);
 
     handle_client_stream(stream, addr, state.clone());
 }
