@@ -74,15 +74,20 @@ pub fn render_layout(ui: &mut egui::Ui, state: &Arc<Mutex<AppState>>) {
             let mut st = state.lock().unwrap();
             if let Some(idx) = st.dragging_screen {
                 let (dx, dy) = st.drag_offset;
-                let screen = &mut st.screens[idx];
-                let sw = screen.width * 0.5;
-                let sh = screen.height * 0.5;
+                let sw = st.screens[idx].width * 0.5;
+                let sh = st.screens[idx].height * 0.5;
 
-                // Compute new position clamped within canvas
+                let raw_x = pos.x - origin.x - dx;
+                let raw_y = pos.y - origin.y - dy;
+
                 let max_x = canvas_rect.width() - sw - 20.0;
                 let max_y = canvas_rect.height() - sh - 20.0;
-                screen.x = (pos.x - origin.x - dx).clamp(0.0, max_x.max(0.0));
-                screen.y = (pos.y - origin.y - dy).clamp(0.0, max_y.max(0.0));
+
+                let (snapped_x, snapped_y) = crate::edge::snap_screen_position(
+                    &st.screens, idx, raw_x, raw_y, 20.0,
+                );
+                st.screens[idx].x = snapped_x.clamp(0.0, max_x.max(0.0));
+                st.screens[idx].y = snapped_y.clamp(0.0, max_y.max(0.0));
             }
         }
     }
@@ -90,6 +95,7 @@ pub fn render_layout(ui: &mut egui::Ui, state: &Arc<Mutex<AppState>>) {
     if response.drag_stopped() {
         let mut st = state.lock().unwrap();
         st.dragging_screen = None;
+        st.edge_links = crate::edge::compute_edge_links(&st.screens, 20.0);
     }
 
     // Draw screens
@@ -109,6 +115,48 @@ pub fn render_layout(ui: &mut egui::Ui, state: &Arc<Mutex<AppState>>) {
             (rect, screen.is_server, label, i == dragging_idx.unwrap_or(usize::MAX), i)
         }).collect()
     };
+
+    // Render linked edges as green lines
+    {
+        let st = state.lock().unwrap();
+        for link in &st.edge_links {
+            let from = &st.screens[link.from_screen];
+            let fw = from.width * 0.5;
+            let fh = from.height * 0.5;
+
+            let (p1, p2) = match link.from_side {
+                crate::state::Side::Right => {
+                    let x = origin.x + from.x + fw;
+                    let y1 = origin.y + from.y + fh * link.overlap_start;
+                    let y2 = origin.y + from.y + fh * link.overlap_end;
+                    (egui::Pos2::new(x, y1), egui::Pos2::new(x, y2))
+                }
+                crate::state::Side::Left => {
+                    let x = origin.x + from.x;
+                    let y1 = origin.y + from.y + fh * link.overlap_start;
+                    let y2 = origin.y + from.y + fh * link.overlap_end;
+                    (egui::Pos2::new(x, y1), egui::Pos2::new(x, y2))
+                }
+                crate::state::Side::Bottom => {
+                    let y = origin.y + from.y + fh;
+                    let x1 = origin.x + from.x + fw * link.overlap_start;
+                    let x2 = origin.x + from.x + fw * link.overlap_end;
+                    (egui::Pos2::new(x1, y), egui::Pos2::new(x2, y))
+                }
+                crate::state::Side::Top => {
+                    let y = origin.y + from.y;
+                    let x1 = origin.x + from.x + fw * link.overlap_start;
+                    let x2 = origin.x + from.x + fw * link.overlap_end;
+                    (egui::Pos2::new(x1, y), egui::Pos2::new(x2, y))
+                }
+            };
+
+            painter.line_segment(
+                [p1, p2],
+                egui::Stroke::new(3.0, egui::Color32::from_rgb(74, 222, 128)),
+            );
+        }
+    }
 
     for (rect, is_server, label, is_dragging, _idx) in &screens_snapshot {
         // Fill color
