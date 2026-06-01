@@ -41,6 +41,35 @@ pub struct ScreenConfig {
     pub width: f32,
     pub height: f32,
     pub is_server: bool,
+    pub real_width: u32,
+    pub real_height: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum Side {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EdgeLink {
+    pub from_screen: usize,
+    pub from_side: Side,
+    pub to_screen: usize,
+    pub to_side: Side,
+    pub overlap_start: f32,
+    pub overlap_end: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct VirtualCursor {
+    pub x: f64,
+    pub y: f64,
+    pub screen_width: f64,
+    pub screen_height: f64,
+    pub target_screen: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +119,8 @@ pub struct AppState {
     pub dragging_screen: Option<usize>,
     pub drag_offset: (f32, f32),
     pub scan_requested: bool,
+    pub edge_links: Vec<EdgeLink>,
+    pub virtual_cursor: Option<VirtualCursor>,
 }
 
 impl Default for AppState {
@@ -108,11 +139,13 @@ impl Default for AppState {
             connected_server: None,
             screens: vec![ScreenConfig {
                 name: "This Machine".to_string(),
-                x: 0.0,
-                y: 0.0,
-                width: 300.0,
-                height: 200.0,
+                x: 50.0,
+                y: 50.0,
+                width: 200.0,
+                height: 130.0,
                 is_server: true,
+                real_width: 1440,
+                real_height: 900,
             }],
             event_log: VecDeque::new(),
             port: 24800,
@@ -125,6 +158,8 @@ impl Default for AppState {
             dragging_screen: None,
             drag_offset: (0.0, 0.0),
             scan_requested: false,
+            edge_links: Vec::new(),
+            virtual_cursor: None,
         }
     }
 }
