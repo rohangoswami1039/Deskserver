@@ -79,6 +79,8 @@ pub struct AppState {
     pub active_tab: Tab,
     pub log_collapsed: bool,
     pub manual_connect_ip: String,
+    pub dragging_screen: Option<usize>,
+    pub drag_offset: (f32, f32),
 }
 
 impl Default for AppState {
@@ -110,6 +112,8 @@ impl Default for AppState {
             active_tab: Tab::ScreenLayout,
             log_collapsed: false,
             manual_connect_ip: String::new(),
+            dragging_screen: None,
+            drag_offset: (0.0, 0.0),
         }
     }
 }
