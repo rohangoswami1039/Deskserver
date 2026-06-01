@@ -116,15 +116,29 @@ fn handle_server_stream(mut stream: TcpStream, peer: String, state: Arc<Mutex<Ap
 }
 
 fn handle_connect_to(addr: String, state: Arc<Mutex<AppState>>) {
+    let full_addr = if addr.contains(':') {
+        addr.clone()
+    } else {
+        format!("{}:24800", addr)
+    };
+
     state
         .lock()
         .unwrap()
-        .log(format!("Connecting to {}", addr), LogLevel::Info);
+        .log(format!("Connecting to {}", full_addr), LogLevel::Info);
 
-    let stream = match TcpStream::connect_timeout(
-        &addr.parse().unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap()),
-        Duration::from_secs(5),
-    ) {
+    let socket_addr: std::net::SocketAddr = match full_addr.parse() {
+        Ok(a) => a,
+        Err(e) => {
+            state.lock().unwrap().log(
+                format!("Invalid address '{}': {}", full_addr, e),
+                LogLevel::Warning,
+            );
+            return;
+        }
+    };
+
+    let stream = match TcpStream::connect_timeout(&socket_addr, Duration::from_secs(5)) {
         Ok(s) => s,
         Err(e) => {
             state
