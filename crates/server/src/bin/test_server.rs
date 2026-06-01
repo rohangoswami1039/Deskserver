@@ -75,6 +75,8 @@ fn toggle_mode(stream: &Mutex<std::net::TcpStream>) {
         {
             kvm_server_lib::capture::macos::reconnect_mouse();
             kvm_server_lib::capture::macos::show_cursor();
+            kvm_server_lib::capture::macos::show_cursor();
+            kvm_server_lib::capture::macos::show_cursor();
         }
         let mut s = stream.lock().unwrap();
         let _ = write_msg(&mut *s, &InputMsg::ScreenLeave);
@@ -154,6 +156,14 @@ fn main() {
         }
 
         if MODE.load(Ordering::SeqCst) == LOCAL {
+            // Skip transition events after returning from REMOTE
+            if skip_deltas > 0 {
+                if matches!(&event, CaptureEvent::MouseMove { .. }) {
+                    skip_deltas -= 1;
+                }
+                return false; // Pass through but don't check edges yet
+            }
+
             // Check for edge crossing — Windows is on the LEFT of Mac
             if let CaptureEvent::MouseMove { x, y, .. } = &event {
                 // Debug: log cursor position near edges
@@ -217,11 +227,17 @@ fn main() {
                 // Check for return crossing (past RIGHT edge of Windows — back to Mac)
                 if virtual_x > client_width {
                     MODE.store(LOCAL, Ordering::SeqCst);
-                    println!("[SERVER] Return crossing → LOCAL");
+                    is_warp_event = false; // Reset flag so LOCAL mode works cleanly
+                    skip_deltas = 2; // Skip a couple events during transition
+
+                    println!("[SERVER] Return crossing → LOCAL (restoring cursor to {:.0}, {:.0})", saved_cursor_x, saved_cursor_y);
 
                     #[cfg(target_os = "macos")]
                     {
                         kvm_server_lib::capture::macos::warp_cursor_to(saved_cursor_x, saved_cursor_y);
+                        // Show cursor — call multiple times to undo reference counting
+                        kvm_server_lib::capture::macos::show_cursor();
+                        kvm_server_lib::capture::macos::show_cursor();
                         kvm_server_lib::capture::macos::show_cursor();
                     }
 
