@@ -9,6 +9,7 @@ edition = "2021"
 
 [dev-dependencies]
 deskserver-common = { path = "crates/common" }
+deskserver = { path = "crates/app" }
 
 [[test]]
 name = "protocol_test"
@@ -17,3 +18,7 @@ path = "tests/integration/protocol_test.rs"
 [[test]]
 name = "keymap_test"
 path = "tests/integration/keymap_test.rs"
+
+[[test]]
+name = "edge_test"
+path = "tests/integration/edge_test.rs"

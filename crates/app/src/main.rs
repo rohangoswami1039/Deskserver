@@ -1,6 +1,7 @@
 mod discovery;
+pub mod edge;
 mod network;
-mod state;
+pub mod state;
 mod tray;
 mod ui;
 
