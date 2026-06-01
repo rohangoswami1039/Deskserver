@@ -126,6 +126,15 @@ fn main() {
 
     let stream = Mutex::new(stream);
 
+    // Screen dimensions (hardcoded for now — UI app will make these configurable)
+    let server_width: f64 = 1440.0;
+    let server_height: f64 = 900.0;
+    let client_width: f64 = 1920.0;
+    let client_height: f64 = 1080.0;
+
+    let mut virtual_x: f64 = 0.0;
+    let mut virtual_y: f64 = 0.0;
+
     run_capture(move |event| {
         if is_hotkey(&event) {
             toggle_mode(&stream);
@@ -133,6 +142,31 @@ fn main() {
         }
 
         if MODE.load(Ordering::SeqCst) == LOCAL {
+            // Check for edge crossing
+            if let CaptureEvent::MouseMove { x, y, .. } = &event {
+                if *x >= server_width - 2.0 {
+                    // Hit right edge — cross to remote
+                    let pct = *y / server_height;
+                    let entry_y = pct * client_height;
+                    let entry_x = 0.0;
+
+                    MODE.store(REMOTE, Ordering::SeqCst);
+                    virtual_x = entry_x;
+                    virtual_y = entry_y;
+
+                    println!("[SERVER] Edge crossing → REMOTE (entry at {:.0}, {:.0})", entry_x, entry_y);
+
+                    #[cfg(target_os = "macos")]
+                    {
+                        kvm_server_lib::capture::macos::hide_cursor();
+                        kvm_server_lib::capture::macos::disconnect_mouse();
+                    }
+
+                    let mut s = stream.lock().unwrap();
+                    let _ = write_msg(&mut *s, &InputMsg::ScreenEnter { x: entry_x, y: entry_y });
+                    return true;
+                }
+            }
             return false;
         }
 
@@ -144,6 +178,29 @@ fn main() {
 
         let msg = match &event {
             CaptureEvent::MouseMove { delta_x, delta_y, .. } => {
+                virtual_x += *delta_x;
+                virtual_y += *delta_y;
+
+                // Check for return crossing (past left edge)
+                if virtual_x < 0.0 {
+                    MODE.store(LOCAL, Ordering::SeqCst);
+                    println!("[SERVER] Return crossing → LOCAL");
+
+                    #[cfg(target_os = "macos")]
+                    {
+                        kvm_server_lib::capture::macos::reconnect_mouse();
+                        kvm_server_lib::capture::macos::show_cursor();
+                    }
+
+                    let mut s = stream.lock().unwrap();
+                    let _ = write_msg(&mut *s, &InputMsg::ScreenLeave);
+                    return true;
+                }
+
+                // Clamp virtual cursor
+                virtual_x = virtual_x.clamp(0.0, client_width);
+                virtual_y = virtual_y.clamp(0.0, client_height);
+
                 if delta_x.abs() > 0.1 || delta_y.abs() > 0.1 {
                     Some(InputMsg::MouseMove { x: *delta_x, y: *delta_y })
                 } else {
