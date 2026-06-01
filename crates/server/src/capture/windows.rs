@@ -65,7 +65,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                 pressed: false,
             }),
             WM_MOUSEWHEEL => {
-                let delta = (info.mouseData.0 >> 16) as i16;
+                let delta = (info.mouseData >> 16) as i16;
                 Some(CaptureEvent::Wheel {
                     dx: 0,
                     dy: delta as i64 / 120,
