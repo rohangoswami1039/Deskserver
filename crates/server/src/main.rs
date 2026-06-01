@@ -134,6 +134,7 @@ fn main() {
 
     let mut virtual_x: f64 = 0.0;
     let mut virtual_y: f64 = 0.0;
+    let mut skip_deltas: u8 = 0; // Skip first few deltas after mode switch (warp artifacts)
 
     run_capture(move |event| {
         if is_hotkey(&event) {
@@ -155,6 +156,7 @@ fn main() {
                     virtual_y = entry_y;
 
                     println!("[SERVER] Edge crossing → REMOTE (entry at {:.0}, {:.0})", entry_x, entry_y);
+                    skip_deltas = 3; // Skip first 3 deltas (warp artifacts)
 
                     #[cfg(target_os = "macos")]
                     {
@@ -170,14 +172,15 @@ fn main() {
             return false;
         }
 
-        // REMOTE mode — pin Mac cursor and send raw deltas
-        #[cfg(target_os = "macos")]
-        if matches!(&event, CaptureEvent::MouseMove { .. }) {
-            kvm_server_lib::capture::macos::pin_cursor();
-        }
-
+        // REMOTE mode — send raw deltas (cursor disconnected, no pin needed)
         let msg = match &event {
             CaptureEvent::MouseMove { delta_x, delta_y, .. } => {
+                // Skip first few deltas after crossing — warp artifacts
+                if skip_deltas > 0 {
+                    skip_deltas -= 1;
+                    return true; // Suppress but don't forward
+                }
+
                 virtual_x += *delta_x;
                 virtual_y += *delta_y;
 
