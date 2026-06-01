@@ -1,6 +1,7 @@
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::sync::mpsc;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Role {
@@ -57,6 +58,12 @@ pub enum LogLevel {
     Mode,
 }
 
+pub enum NetworkCommand {
+    StartServer { port: u16 },
+    ConnectTo { addr: String },
+    Disconnect,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Tab {
     ScreenLayout,
@@ -79,6 +86,7 @@ pub struct AppState {
     pub active_tab: Tab,
     pub log_collapsed: bool,
     pub manual_connect_ip: String,
+    pub network_tx: Option<mpsc::Sender<NetworkCommand>>,
     pub dragging_screen: Option<usize>,
     pub drag_offset: (f32, f32),
 }
@@ -112,6 +120,7 @@ impl Default for AppState {
             active_tab: Tab::ScreenLayout,
             log_collapsed: false,
             manual_connect_ip: String::new(),
+            network_tx: None,
             dragging_screen: None,
             drag_offset: (0.0, 0.0),
         }

@@ -1,4 +1,4 @@
-use crate::state::{AppState, Role};
+use crate::state::{AppState, NetworkCommand, Role};
 use std::sync::{Arc, Mutex};
 
 pub fn render_connections(ui: &mut egui::Ui, state: &Arc<Mutex<AppState>>) {
@@ -6,8 +6,19 @@ pub fn render_connections(ui: &mut egui::Ui, state: &Arc<Mutex<AppState>>) {
 
     match state.role {
         Role::Server => {
-            ui.heading("Connected Clients");
+            ui.heading("Server");
             ui.add_space(8.0);
+
+            let port = state.port;
+            if ui.button("Start Server").clicked() {
+                if let Some(tx) = &state.network_tx {
+                    let _ = tx.send(NetworkCommand::StartServer { port });
+                }
+            }
+
+            ui.add_space(8.0);
+            ui.heading("Connected Clients");
+            ui.add_space(4.0);
 
             if state.connected_clients.is_empty() {
                 ui.label("No clients connected.");
@@ -42,6 +53,8 @@ pub fn render_connections(ui: &mut egui::Ui, state: &Arc<Mutex<AppState>>) {
             if state.available_servers.is_empty() {
                 ui.label("No servers found. Enter an IP address to connect manually.");
             } else {
+                // Collect connect commands to avoid borrow issues
+                let mut connect_addr: Option<String> = None;
                 for server in &state.available_servers {
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
@@ -50,10 +63,15 @@ pub fn render_connections(ui: &mut egui::Ui, state: &Arc<Mutex<AppState>>) {
                             ui.label(format!("{} client(s)", server.client_count));
                             ui.label(format!("{:.0}ms", server.latency_ms));
                             if ui.button("Connect").clicked() {
-                                // Connection logic will be added later
+                                connect_addr = Some(server.addr.clone());
                             }
                         });
                     });
+                }
+                if let Some(addr) = connect_addr {
+                    if let Some(tx) = &state.network_tx {
+                        let _ = tx.send(NetworkCommand::ConnectTo { addr });
+                    }
                 }
             }
 
@@ -64,8 +82,12 @@ pub fn render_connections(ui: &mut egui::Ui, state: &Arc<Mutex<AppState>>) {
             ui.horizontal(|ui| {
                 ui.label("IP:");
                 ui.text_edit_singleline(&mut state.manual_connect_ip);
-                if ui.button("Connect").clicked() {
-                    // Manual connection logic will be added later
+                if ui.button("Connect").clicked() && !state.manual_connect_ip.is_empty() {
+                    if let Some(tx) = &state.network_tx {
+                        let _ = tx.send(NetworkCommand::ConnectTo {
+                            addr: state.manual_connect_ip.clone(),
+                        });
+                    }
                 }
             });
         }

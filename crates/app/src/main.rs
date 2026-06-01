@@ -1,3 +1,4 @@
+mod network;
 mod state;
 mod ui;
 
@@ -7,6 +8,9 @@ use ui::DeskserverApp;
 
 fn main() -> eframe::Result {
     let state = Arc::new(Mutex::new(AppState::default()));
+
+    let net_tx = network::spawn_network_thread(state.clone());
+    state.lock().unwrap().network_tx = Some(net_tx);
 
     {
         let mut s = state.lock().unwrap();
