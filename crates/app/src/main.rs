@@ -1,5 +1,6 @@
 mod network;
 mod state;
+mod tray;
 mod ui;
 
 use state::{AppState, LogLevel};
@@ -8,6 +9,8 @@ use ui::DeskserverApp;
 
 fn main() -> eframe::Result {
     let state = Arc::new(Mutex::new(AppState::default()));
+
+    let _tray = tray::create_tray();
 
     let net_tx = network::spawn_network_thread(state.clone());
     state.lock().unwrap().network_tx = Some(net_tx);
