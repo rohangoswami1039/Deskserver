@@ -276,6 +276,12 @@ pub fn warp_cursor_to_center() {
     }
 }
 
+pub fn warp_cursor_to(x: f64, y: f64) {
+    unsafe {
+        CGWarpMouseCursorPosition(CGPoint { x, y });
+    }
+}
+
 pub fn get_screen_center() -> (f64, f64) {
     unsafe {
         let display = CGMainDisplayID();
