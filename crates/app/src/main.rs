@@ -35,16 +35,12 @@ fn main() -> eframe::Result {
         "Deskserver",
         options,
         Box::new(move |cc| {
-            // Apply dark visuals with custom accent colors
+            // Apply custom dark theme matching mockup design (deep blue/purple tones)
             let mut visuals = egui::Visuals::dark();
-            visuals.override_text_color = Some(egui::Color32::from_rgb(220, 220, 220));
-            visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(25, 25, 30);
-            visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(40, 40, 50);
-            visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(55, 55, 70);
-            visuals.widgets.active.bg_fill = egui::Color32::from_rgb(70, 70, 90);
-            visuals.selection.bg_fill = egui::Color32::from_rgb(50, 80, 130);
-            visuals.panel_fill = egui::Color32::from_rgb(20, 20, 25);
-            visuals.window_fill = egui::Color32::from_rgb(20, 20, 25);
+            visuals.panel_fill = egui::Color32::from_rgb(18, 18, 32);
+            visuals.window_fill = egui::Color32::from_rgb(22, 22, 40);
+            visuals.extreme_bg_color = egui::Color32::from_rgb(10, 10, 20);
+            visuals.faint_bg_color = egui::Color32::from_rgb(25, 25, 45);
             cc.egui_ctx.set_visuals(visuals);
 
             Ok(Box::new(DeskserverApp::new(state.clone())))
